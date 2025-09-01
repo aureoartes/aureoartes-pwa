@@ -505,7 +505,10 @@ export default function Campeonatos() {
                   <div className="row" style={{ gap: 6, flexShrink: 0 }}>
                     <button onClick={() => handleEdit(c)} className="btn btn--orange">Editar</button>
                     <button onClick={() => handleDelete(c.id)} className="btn btn--red">Excluir</button>
+                    <a href={`/campeonatos/${c.id}/equipes`} className="btn btn--muted">Equipes</a>
+                    <a href={`/campeonatos/${c.id}/partidas`} className="btn btn--muted">Partidas</a>
                   </div>
+
                 </li>
               );
             })}
