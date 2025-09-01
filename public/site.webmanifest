@@ -1,0 +1,12 @@
+{
+  "name": "AUREOARTES",
+  "short_name": "AUREOARTES",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF6EF",
+  "theme_color": "#FB8C00",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/logo_aureoartes_mini_q.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
