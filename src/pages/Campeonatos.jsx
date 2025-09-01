@@ -1,16 +1,11 @@
+// src/pages/Campeonatos.jsx
 import { useEffect, useMemo, useState } from "react";
 import supabase from "../lib/supabaseClient";
-import PageHeader from "../components/PageHeader";
+import CollapsibleSection from "../components/CollapsibleSection.jsx";
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
 
-const CATEGORIAS = [
-  "Futebol de Botão",
-  "Futebol de Campo",
-  "Futsal",
-  "Society",
-];
-
+const CATEGORIAS = ["Futebol de Botão", "Futebol de Campo", "Futsal", "Society"];
 const FORMATOS = [
   { value: "pontos_corridos", label: "Pontos Corridos" },
   { value: "grupos", label: "Grupos" },
@@ -18,151 +13,134 @@ const FORMATOS = [
 ];
 
 export default function Campeonatos() {
-  // plano / limite
   const [maxTimesPlano, setMaxTimesPlano] = useState(16);
 
-  // form
+  // PASSO 1
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("Futebol de Botão");
   const [formato, setFormato] = useState("pontos_corridos");
   const [numeroEquipes, setNumeroEquipes] = useState("");
-  const [idaVolta, setIdaVolta] = useState(false);
+  const [idaVolta, setIdaVolta] = useState(false); // agora para todos os formatos
 
-  const [numeroGrupos, setNumeroGrupos] = useState("");
-  const [avancamPorGrupo, setAvancamPorGrupo] = useState("");
-
+  // PASSO 2
   const [duracaoTempo, setDuracaoTempo] = useState(10);
-  const [prorrogacao, setProrrogacao] = useState(false); // só para mata-mata (inclui mata-mata pós-grupos)
-  const [duracaoProrrogacao, setDuracaoProrrogacao] = useState(5);
-  const [qtdPenaltis, setQtdPenaltis] = useState(5);
+  const [prorrogacao, setProrrogacao] = useState(false); // (mata_mata, grupos)
+  const [numeroGrupos, setNumeroGrupos] = useState("");  // (grupos)
+  const [avancamPorGrupo, setAvancamPorGrupo] = useState(""); // (grupos)
+  const [duracaoProrrogacao, setDuracaoProrrogacao] = useState(5); // (se prorrogacao)
+  const [qtdPenaltis, setQtdPenaltis] = useState(5); // 1..5
 
+  // fluxo
+  const [step, setStep] = useState(1); // 1 ou 2
+  const [formOpen, setFormOpen] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
+  const [hasPartidas, setHasPartidas] = useState(false);
 
-  // listagem
+  // lista
   const [itens, setItens] = useState([]);
-  const [sortBy, setSortBy] = useState("alpha"); // alpha | recent | oldest
+  const [sortBy, setSortBy] = useState("alpha");
 
-  useEffect(() => {
-    fetchPlanoMax();
-    fetchCampeonatos();
-  }, []);
+  useEffect(() => { fetchPlanoMax(); fetchCampeonatos(); }, []);
 
   async function fetchPlanoMax() {
-    // 1) busca usuario (plano_id)
-    const { data: user, error: e1 } = await supabase
+    const { data: user } = await supabase
       .from("usuarios")
       .select("plano_id")
       .eq("id", USUARIO_ID)
       .single();
 
-    if (e1 || !user?.plano_id) {
-      setMaxTimesPlano(16); // fallback
-      return;
-    }
+    if (!user?.plano_id) { setMaxTimesPlano(16); return; }
 
-    // 2) busca plano -> max_times
-    const { data: plano, error: e2 } = await supabase
+    const { data: plano } = await supabase
       .from("planos")
       .select("max_times")
       .eq("id", user.plano_id)
       .single();
 
-    if (!e2 && plano?.max_times) {
-      setMaxTimesPlano(plano.max_times);
-    } else {
-      setMaxTimesPlano(16);
-    }
+    setMaxTimesPlano(plano?.max_times || 16);
   }
 
   async function fetchCampeonatos() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("campeonatos")
       .select("*")
       .eq("usuario_id", USUARIO_ID)
       .order("criado_em", { ascending: false });
 
-    if (!error) setItens(data || []);
+    setItens(data || []);
   }
 
   function resetForm() {
     setEditandoId(null);
+    setHasPartidas(false);
+    setStep(1);
     setNome("");
     setCategoria("Futebol de Botão");
     setFormato("pontos_corridos");
     setNumeroEquipes("");
     setIdaVolta(false);
-    setNumeroGrupos("");
-    setAvancamPorGrupo("");
+
     setDuracaoTempo(10);
     setProrrogacao(false);
+    setNumeroGrupos("");
+    setAvancamPorGrupo("");
     setDuracaoProrrogacao(5);
     setQtdPenaltis(5);
   }
 
-  // ======== Validações de negócio =========
-  function validate() {
-    // limites gerais
-    const nEquipes = parseInt(numeroEquipes || "0", 10);
+  // validações
+  function validateStep1() {
+    const n = parseInt(numeroEquipes || "0", 10);
     if (!nome.trim()) return "Informe o nome do campeonato.";
-    if (!nEquipes || nEquipes < 1) return "Informe o número de equipes.";
-    if (nEquipes > maxTimesPlano)
-      return `Seu plano permite no máximo ${maxTimesPlano} times.`;
+    if (!n || n < 1) return "Informe o número de equipes.";
+    if (n > maxTimesPlano) return `Seu plano permite no máximo ${maxTimesPlano} times.`;
 
-    // duração dos tempos (2..45)
+    if (formato === "pontos_corridos" && n < 4) return "Pontos corridos exige no mínimo 4 times.";
+    if (formato === "mata_mata" && n < 4) return "Mata-mata exige no mínimo 4 times.";
+    if (formato === "grupos" && n < 6) return "Para formato em grupos, informe ao menos 6 equipes.";
+    return null;
+  }
+
+  function validateStep2() {
     const t = parseInt(duracaoTempo, 10);
     if (isNaN(t) || t < 2 || t > 45) return "Duração de cada tempo deve estar entre 2 e 45 minutos.";
 
-    // prorrogação (2..15) ou igual à duração do tempo (você pediu até 15 ou duração da partida;
-    // aqui interpretamos como duração do tempo, mantendo 2..15. Ajusto se quiser permitir =duracaoTempo)
-    if (prorrogacao) {
+    if (formato === "grupos") {
+      const n = parseInt(numeroEquipes || "0", 10);
+      const ng = parseInt(numeroGrupos || "0", 10);
+      const av = parseInt(avancamPorGrupo || "0", 10);
+
+      if (!ng || ng < 2) return "Formato em grupos exige no mínimo 2 grupos.";
+      if (n < ng * 3) return `Com ${ng} grupos, é necessário no mínimo ${ng * 3} times (mínimo 3 por grupo).`;
+
+      const menorGrupo = Math.floor(n / ng);
+      const maxAvanco = Math.max(1, menorGrupo - 1);
+      if (!av || av < 1) return "Avançam por grupo deve ser no mínimo 1.";
+      if (av > maxAvanco) return `Avançam por grupo deve ser no máximo ${maxAvanco}, considerando o grupo com menos times.`;
+    }
+
+    if ((formato === "mata_mata" || formato === "grupos") && prorrogacao) {
       const tp = parseInt(duracaoProrrogacao, 10);
       if (isNaN(tp) || tp < 2 || tp > Math.min(15, t))
         return "Duração da prorrogação deve ser entre 2 e 15 e não maior que a duração do tempo.";
     }
 
-    // pênaltis (1..5)
     const qp = parseInt(qtdPenaltis, 10);
-    if (isNaN(qp) || qp < 1 || qp > 5) return "Quantidade de pênaltis deve ser entre 1 e 5.";
-
-    // regras por formato
-    if (formato === "pontos_corridos") {
-      if (nEquipes < 4) return "Pontos corridos exige no mínimo 4 times.";
-      // ok; ida/volta já está no form
-    }
-
-    if (formato === "grupos") {
-      const ng = parseInt(numeroGrupos || "0", 10);
-      const av = parseInt(avancamPorGrupo || "0", 10);
-
-      if (!ng || ng < 2) return "Formato em grupos exige no mínimo 2 grupos.";
-      // min 3 times por grupo
-      if (nEquipes < ng * 3)
-        return `Com ${ng} grupos, é necessário no mínimo ${ng * 3} times (mínimo 3 por grupo).`;
-
-      // regra de avanço: min 1 e máximo (menor grupo - 1)
-      const menorGrupo = Math.floor(nEquipes / ng); // aprox; se quiser dividir exato depois
-      const maxAvanco = Math.max(1, menorGrupo - 1);
-      if (!av || av < 1) return "Avanços por grupo deve ser no mínimo 1.";
-      if (av > maxAvanco)
-        return `Avanços por grupo deve ser no máximo ${maxAvanco}, considerando o grupo com menos times.`;
-
-      // prorrogação/pênaltis aplicam-se somente na fase mata-mata (após grupos)
-    }
-
-    if (formato === "mata_mata") {
-      if (nEquipes < 4) return "Mata-mata exige no mínimo 4 times.";
-    }
+    if (isNaN(qp) || qp < 1 || qp > 5) return "Quantidade de pênaltis regulares deve ser entre 1 e 5.";
 
     return null;
   }
 
+  function confirmStep1() {
+    const err = validateStep1();
+    if (err) return alert(`❌ ${err}`);
+    setStep(2);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    const err = validate();
-    if (err) {
-      alert(`❌ ${err}`);
-      return;
-    }
+    const err = validateStep2();
+    if (err) return alert(`❌ ${err}`);
 
     const payload = {
       usuario_id: USUARIO_ID,
@@ -172,22 +150,18 @@ export default function Campeonatos() {
       numero_equipes: numeroEquipes ? parseInt(numeroEquipes, 10) : null,
       ida_volta: !!idaVolta,
       numero_grupos: formato === "grupos" ? (numeroGrupos ? parseInt(numeroGrupos, 10) : null) : null,
-      avancam_por_grupo:
-        formato === "grupos" ? (avancamPorGrupo ? parseInt(avancamPorGrupo, 10) : null) : null,
+      avancam_por_grupo: formato === "grupos" ? (avancamPorGrupo ? parseInt(avancamPorGrupo, 10) : null) : null,
       duracao_tempo: parseInt(duracaoTempo, 10),
-      prorrogacao: formato !== "pontos_corridos" ? !!prorrogacao : false,
+      prorrogacao: (formato === "mata_mata" || formato === "grupos") ? !!prorrogacao : false,
       duracao_prorrogacao:
-        formato !== "pontos_corridos" && prorrogacao
+        (formato === "mata_mata" || formato === "grupos") && prorrogacao
           ? parseInt(duracaoProrrogacao, 10)
           : null,
       qtd_penaltis: parseInt(qtdPenaltis, 10),
     };
 
     if (editandoId) {
-      const { error } = await supabase
-        .from("campeonatos")
-        .update(payload)
-        .eq("id", editandoId);
+      const { error } = await supabase.from("campeonatos").update(payload).eq("id", editandoId);
       if (error) return alert("❌ Erro ao atualizar campeonato");
       alert("✅ Campeonato atualizado!");
     } else {
@@ -197,7 +171,45 @@ export default function Campeonatos() {
     }
 
     resetForm();
-    fetchCampeonatos();
+    await fetchCampeonatos();
+    setFormOpen(false);
+  }
+
+  async function checkHasPartidas(campeonatoId) {
+    try {
+      const { count, error } = await supabase
+        .from("partidas")
+        .select("id", { count: "exact", head: true })
+        .eq("campeonato_id", campeonatoId);
+      if (error) setHasPartidas(false);
+      else setHasPartidas((count || 0) > 0);
+    } catch {
+      setHasPartidas(false);
+    }
+  }
+
+  function handleEdit(c) {
+    setEditandoId(c.id);
+
+    // Passo 1
+    setNome(c.nome || "");
+    setCategoria(c.categoria || "Futebol de Botão");
+    setFormato(c.formato || "pontos_corridos");
+    setNumeroEquipes(c.numero_equipes ?? "");
+    setIdaVolta(!!c.ida_volta);
+
+    // Passo 2
+    setDuracaoTempo(c.duracao_tempo ?? 10);
+    setProrrogacao(!!c.prorrogacao);
+    setNumeroGrupos(c.numero_grupos ?? "");
+    setAvancamPorGrupo(c.avancam_por_grupo ?? "");
+    setDuracaoProrrogacao(c.duracao_prorrogacao ?? 5);
+    setQtdPenaltis(c.qtd_penaltis ?? 5);
+
+    setFormOpen(true);
+    setStep(1);              // ⇦ Ao editar: Passo 1 habilitado, Passo 2 “desabilitado” visualmente
+    checkHasPartidas(c.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleDelete(id) {
@@ -206,79 +218,96 @@ export default function Campeonatos() {
     if (!error) setItens((prev) => prev.filter((c) => c.id !== id));
   }
 
-  function handleEdit(c) {
-    setEditandoId(c.id);
-    setNome(c.nome || "");
-    setCategoria(c.categoria || "Futebol de Botão");
-    setFormato(c.formato || "pontos_corridos");
-    setNumeroEquipes(c.numero_equipes ?? "");
-    setIdaVolta(!!c.ida_volta);
-    setNumeroGrupos(c.numero_grupos ?? "");
-    setAvancamPorGrupo(c.avancam_por_grupo ?? "");
-    setDuracaoTempo(c.duracao_tempo ?? 10);
-    setProrrogacao(!!c.prorrogacao);
-    setDuracaoProrrogacao(c.duracao_prorrogacao ?? 5);
-    setQtdPenaltis(c.qtd_penaltis ?? 5);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   const itensOrdenados = useMemo(() => {
     const arr = [...itens];
-    if (sortBy === "alpha") {
-      arr.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-    } else if (sortBy === "recent") {
-      arr.sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
-    } else if (sortBy === "oldest") {
-      arr.sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em));
-    }
+    if (sortBy === "alpha") arr.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+    if (sortBy === "recent") arr.sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
+    if (sortBy === "oldest") arr.sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em));
     return arr;
   }, [itens, sortBy]);
 
-  const helperPlano = `Seu plano permite no máx. ${maxTimesPlano} times por campeonato.`;
+  const labelFormato = (v) => FORMATOS.find((f) => f.value === v)?.label || v;
+
+  // Bloqueio quando JÁ existe partidas
+  const lock = editandoId && hasPartidas;
+  const isEdit = !!editandoId;
 
   return (
-    <div>
-      <PageHeader
-        title="Campeonatos"
-        subtitle="Defina o formato, categorias e regras (tempo, prorrogação, pênaltis)."
-      />
-
-      <div className="container" style={{ padding: 20 }}>
-        <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", gap: 20 }}>
-          {/* FORM */}
-          <form onSubmit={handleSubmit} className="card p-6 sticky" style={{ padding: 16 }}>
-            <h2 style={{ marginBottom: 8 }}>{editandoId ? "Editar Campeonato" : "Novo Campeonato"}</h2>
-
-            <div className="field" style={{ marginBottom: 10 }}>
-              <label className="label">Nome</label>
-              <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} required />
+    <div className="container">
+      <div className="grid">
+        {/* HEADER */}
+        <div className="card" style={{ padding: 14 }}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h1 style={{ margin: 0 }}>Campeonatos</h1>
+              <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+                Crie, edite e defina o formato e regras.
+              </div>
             </div>
-
-            <div className="field" style={{ marginBottom: 10 }}>
-              <label className="label">Categoria</label>
-              <select className="select" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                {CATEGORIAS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
+            <div className="row" style={{ gap: 6 }}>
+              <label className="label" htmlFor="ordem" style={{ margin: 0 }}>Ordenar:</label>
+              <select id="ordem" className="select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="alpha">Ordem alfabética</option>
+                <option value="recent">Mais recente</option>
+                <option value="oldest">Mais antigo</option>
               </select>
             </div>
+          </div>
+        </div>
 
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="field" style={{ marginBottom: 10 }}>
+        {/* FORM */}
+        <CollapsibleSection
+          title={editandoId ? "Editar Campeonato" : "Novo Campeonato"}
+          subtitle="Preencha em 2 passos: dados gerais e, depois, regras do jogo"
+          open={formOpen}
+          onToggle={(o) => { setFormOpen(o); if (!o) { setStep(1); resetForm(); } }}
+        >
+          {/* PASSO 1 */}
+          <div className="card" style={{ padding: 14, opacity: step === 1 ? 1 : 0.65 }}>
+            <h3 style={{ marginTop: 0 }}>Passo 1 — Dados gerais</h3>
+
+            <div className="field">
+              <label className="label">Nome</label>
+              <input
+                className="input"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                required
+                // Criando: desabilita no step 2; Editando: sempre habilitado
+                disabled={!isEdit && step === 2}
+              />
+            </div>
+
+            <div className="grid grid-2">
+              <div className="field">
+                <label className="label">Categoria</label>
+                <select
+                  className="select"
+                  value={categoria}
+                  onChange={(e) => setCategoria(e.target.value)}
+                  // Criando: desabilita no step 2; Editando: sempre habilitado
+                  disabled={!isEdit && step === 2}
+                >
+                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="field">
                 <label className="label">Formato</label>
                 <select
                   className="select"
                   value={formato}
                   onChange={(e) => setFormato(e.target.value)}
+                  // Com partidas: travado; Sem partidas: segue fluxo 2 passos
+                  disabled={lock || (!isEdit && step === 2)}
                 >
-                  {FORMATOS.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
-                  ))}
+                  {FORMATOS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
               </div>
+            </div>
 
-              <div className="field" style={{ marginBottom: 10 }}>
-                <label className="label">Nº de equipes</label>
+            <div className="grid grid-2">
+              <div className="field">
+                <label className="label">Número de equipes (máx. {maxTimesPlano})</label>
                 <input
                   className="input"
                   type="number"
@@ -286,18 +315,12 @@ export default function Campeonatos() {
                   max={maxTimesPlano}
                   value={numeroEquipes}
                   onChange={(e) => setNumeroEquipes(e.target.value)}
-                  placeholder={`Até ${maxTimesPlano}`}
                   required
+                  disabled={lock || (!isEdit && step === 2)}
                 />
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-                  {helperPlano}
-                </div>
               </div>
-            </div>
 
-            {/* Campos específicos por formato */}
-            {formato === "pontos_corridos" && (
-              <div className="field" style={{ marginBottom: 10 }}>
+              <div className="field">
                 <label className="label">Ida e volta?</label>
                 <div className="row">
                   <input
@@ -305,59 +328,38 @@ export default function Campeonatos() {
                     type="checkbox"
                     checked={idaVolta}
                     onChange={(e) => setIdaVolta(e.target.checked)}
+                    disabled={lock || (!isEdit && step === 2)}
                   />
                   <label htmlFor="ida-volta">Sim</label>
                 </div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-                  Mínimo de 4 times. Sem prorrogação/pênaltis na fase de pontos corridos.
-                </div>
+              </div>
+            </div>
+
+            {step === 1 && (
+              <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                <button type="button" className="btn btn--orange" onClick={confirmStep1}>
+                  Confirmar Passo 1
+                </button>
+                {editandoId && (
+                  <button
+                    type="button"
+                    className="btn btn--muted"
+                    onClick={() => setStep(2)}
+                  >
+                    Ir para Passo 2
+                  </button>
+                )}
               </div>
             )}
+          </div>
 
-            {formato === "grupos" && (
-              <div className="grid grid-2" style={{ gap: 12 }}>
-                <div className="field" style={{ marginBottom: 10 }}>
-                  <label className="label">Nº de grupos</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={2}
-                    value={numeroGrupos}
-                    onChange={(e) => setNumeroGrupos(e.target.value)}
-                    placeholder="Mín. 2"
-                    required
-                  />
-                </div>
-                <div className="field" style={{ marginBottom: 10 }}>
-                  <label className="label">Avançam por grupo</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    value={avancamPorGrupo}
-                    onChange={(e) => setAvancamPorGrupo(e.target.value)}
-                    placeholder="Mín. 1"
-                    required
-                  />
-                </div>
-                <div style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--muted)" }}>
-                  • Mínimo 3 times por grupo • Avanço máximo = (menor grupo - 1).<br />
-                  • Prorrogação/Pênaltis só na fase mata-mata posterior.
-                </div>
-              </div>
-            )}
+          {/* PASSO 2 */}
+          <div className="card" style={{ padding: 14, marginTop: 12, opacity: step === 1 ? 0.65 : 1 }}>
+            <h3 style={{ marginTop: 0 }}>Passo 2 — Regras do jogo</h3>
 
-            {formato === "mata_mata" && (
-              <div className="field" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                  Mínimo de 4 times. Chaveamento ajusta para múltiplos de 4 (ou 2 se necessário).
-                </div>
-              </div>
-            )}
-
-            {/* Regras de tempo / prorrogação / pênaltis */}
-            <div className="grid grid-2" style={{ gap: 12, marginTop: 8 }}>
-              <div className="field" style={{ marginBottom: 10 }}>
+            {/* Linha 1 */}
+            <div className="grid grid-2">
+              <div className="field">
                 <label className="label">Duração de cada tempo (min)</label>
                 <input
                   className="input"
@@ -366,39 +368,60 @@ export default function Campeonatos() {
                   max={45}
                   value={duracaoTempo}
                   onChange={(e) => setDuracaoTempo(e.target.value)}
+                  // Editando: habilitado; Criando: apenas no step 2
+                  disabled={!isEdit && step === 1}
                 />
               </div>
 
-              <div className="field" style={{ marginBottom: 10 }}>
-                <label className="label">Pênaltis (cobranças regulares)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={qtdPenaltis}
-                  onChange={(e) => setQtdPenaltis(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Prorrogação (somente formatos que têm mata-mata) */}
-            {formato !== "pontos_corridos" && (
-              <div className="grid grid-2" style={{ gap: 12, marginTop: 8 }}>
-                <div className="field" style={{ marginBottom: 10 }}>
-                  <label className="label">Prorrogação na mata-mata?</label>
+              {(formato === "mata_mata" || formato === "grupos") && (
+                <div className="field">
+                  <label className="label">Prorrogação no mata-mata?</label>
                   <div className="row">
                     <input
                       id="prorrogacao"
                       type="checkbox"
                       checked={prorrogacao}
                       onChange={(e) => setProrrogacao(e.target.checked)}
+                      disabled={!isEdit && step === 1}
                     />
                     <label htmlFor="prorrogacao">Sim</label>
                   </div>
                 </div>
+              )}
+            </div>
 
-                <div className="field" style={{ marginBottom: 10 }}>
+            {/* Linha 2 (somente grupos) */}
+            {formato === "grupos" && (
+              <div className="grid grid-2">
+                <div className="field">
+                  <label className="label">Quantidade de grupos</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={2}
+                    value={numeroGrupos}
+                    onChange={(e) => setNumeroGrupos(e.target.value)}
+                    disabled={step === 1 || lock}
+                  />
+                </div>
+                <div className="field">
+                  <label className="label">Avançam por grupo</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={avancamPorGrupo}
+                    onChange={(e) => setAvancamPorGrupo(e.target.value)}
+                    disabled={step === 1 || lock}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Linha 3 */}
+            <div className="grid grid-2">
+              {(formato === "mata_mata" || formato === "grupos") && (
+                <div className="field">
                   <label className="label">Duração da prorrogação (min)</label>
                   <input
                     className="input"
@@ -407,125 +430,87 @@ export default function Campeonatos() {
                     max={15}
                     value={duracaoProrrogacao}
                     onChange={(e) => setDuracaoProrrogacao(e.target.value)}
-                    disabled={!prorrogacao}
+                    // Editando: habilitado quando prorrogacao = true (independe do step);
+                    // Criando: somente step 2 e prorrogacao = true.
+                    disabled={isEdit ? !prorrogacao : (step === 1 || !prorrogacao)}
                   />
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="row mt-3" style={{ gap: 8 }}>
-              <button className="btn btn--primary" type="submit">
-                {editandoId ? "Atualizar Campeonato" : "Salvar Campeonato"}
-              </button>
-              {editandoId && (
-                <button type="button" onClick={resetForm} className="btn btn--muted">
-                  Cancelar
-                </button>
+              {(formato === "mata_mata" || formato === "grupos") && (
+                <div className="field">
+                  <label className="label">Quantidade de pênaltis regulares</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={qtdPenaltis}
+                    onChange={(e) => setQtdPenaltis(e.target.value)}
+                    disabled={!isEdit && step === 1}
+                  />
+                </div>
               )}
             </div>
-          </form>
 
-          {/* LISTA / CONTROLES */}
-          <div className="grid" style={{ gap: 16 }}>
-            <div
-              className="card card--soft p-6"
-              style={{
-                padding: 16,
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <h2 style={{ margin: 0 }}>Meus Campeonatos</h2>
-                <span className="badge">{itensOrdenados.length}</span>
-              </div>
-
-              <div className="row" style={{ gap: 8 }}>
-                <label className="label" htmlFor="ordem" style={{ margin: 0 }}>
-                  Ordenar:
-                </label>
-                <select
-                  id="ordem"
-                  className="select"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  style={{ padding: "8px 10px" }}
-                >
-                  <option value="alpha">Ordem alfabética</option>
-                  <option value="recent">Mais recente</option>
-                  <option value="oldest">Mais antigo</option>
-                </select>
-              </div>
+            {/* Ações finais */}
+            <div className="row" style={{ gap: 8, marginTop: 10 }}>
+              <button
+                className="btn btn--primary"
+                type="submit"
+                onClick={handleSubmit}
+                disabled={step === 1}
+              >
+                {editandoId ? "Atualizar Campeonato" : "Salvar Campeonato"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { resetForm(); setFormOpen(false); }}
+                className="btn btn--muted"
+              >
+                Cancelar
+              </button>
             </div>
 
-            {itensOrdenados.length === 0 ? (
-              <div className="card p-6" style={{ padding: 16 }}>
-                <p>Nenhum campeonato cadastrado ainda.</p>
+            {editandoId && hasPartidas && (
+              <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                * Alguns campos estão bloqueados porque este campeonato já possui partidas vinculadas.
               </div>
-            ) : (
-              <ul className="card p-6" style={{ padding: 0 }}>
-                {itensOrdenados.map((c) => {
-                  const labelFormato =
-                    FORMATOS.find((f) => f.value === c.formato)?.label || c.formato;
-                  return (
-                    <li
-                      key={c.id}
-                      style={{
-                        listStyle: "none",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        padding: "12px 16px",
-                        borderBottom: "1px solid var(--line)",
-                        background: "#fff",
-                      }}
-                    >
-                      <div style={{ display: "grid", gap: 2 }}>
-                        <div style={{ fontWeight: 800 }}>{c.nome}</div>
-                        <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                          {c.categoria} — {labelFormato} — {c.numero_equipes} equipes
-                          {c.formato === "grupos" && c.numero_grupos
-                            ? ` — ${c.numero_grupos} grupos / ${c.avancam_por_grupo} avançam`
-                            : ""}
-                          {c.formato === "pontos_corridos" && c.ida_volta ? " — ida e volta" : ""}
-                          {" — tempo: "}{c.duracao_tempo}m
-                          {c.formato !== "pontos_corridos" && c.prorrogacao
-                            ? ` — prorrogação: ${c.duracao_prorrogacao}m`
-                            : ""}
-                          {" — pênaltis: "}{c.qtd_penaltis}
-                        </div>
-                      </div>
-
-                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                        {/* Futuro: configurar times / gerar tabela */}
-                        {/* <button className="btn btn--orange" style={{ padding: "6px 10px", fontSize: 12 }}>Configurar times</button>
-                        <button className="btn btn--orange" style={{ padding: "6px 10px", fontSize: 12 }}>Gerar tabela</button> */}
-                        <button
-                          onClick={() => handleEdit(c)}
-                          className="btn btn--orange"
-                          style={{ padding: "6px 10px", fontSize: 12 }}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => handleDelete(c.id)}
-                          className="btn btn--red"
-                          style={{ padding: "6px 10px", fontSize: 12 }}
-                        >
-                          Excluir
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
+
+        {/* LISTA — 2ª linha: categoria, formato, nº equipes */}
+        {itensOrdenados.length === 0 ? (
+          <div className="card" style={{ padding: 16 }}>
+            <p style={{ margin: 0 }}>Nenhum campeonato cadastrado ainda.</p>
+          </div>
+        ) : (
+          <ul className="list card">
+            {itensOrdenados.map((c) => {
+              const linha2 = [
+                c.categoria,
+                FORMATOS.find((f) => f.value === c.formato)?.label || c.formato,
+                `${c.numero_equipes} equipes`,
+              ].filter(Boolean).join(" — ");
+
+              return (
+                <li key={c.id} className="list__item">
+                  <div className="list__left">
+                    <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                      <div className="list__title" title={c.nome}>{c.nome}</div>
+                      <div className="list__subtitle" title={linha2}>{linha2}</div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => handleEdit(c)} className="btn btn--orange">Editar</button>
+                    <button onClick={() => handleDelete(c.id)} className="btn btn--red">Excluir</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );
