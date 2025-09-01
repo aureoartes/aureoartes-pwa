@@ -203,3 +203,89 @@ button, .btn, .navbar__link { -webkit-tap-highlight-color: transparent; }
 
 /* Scroll e overscroll */
 html, body { overscroll-behavior-y: none; }
+
+/* ===== Times: cards detalhados (refinado) ===== */
+.team-card { position: relative; border-radius: var(--radius); overflow: hidden; }
+
+.team-card__banner {
+  position: relative;
+  height: 92px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  overflow: hidden;
+}
+.team-card__banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--c1, #fff);
+}
+.team-card__banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* triângulo diagonal */
+  background: linear-gradient(135deg, transparent 0 50%, var(--c2, #000) 50%);
+}
+
+
+/* Escudo/sigla flutuante no banner */
+.team-card__badge {
+  position: absolute;
+  left: 14px;
+  top: 40px;                 /* antes: 62px  -> sobe um pouco */
+  width: 68px;
+  height: 68px;
+  border-radius: 14px;
+  border: 3px solid var(--cd, #000);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  display:flex; align-items:center; justify-content:center;
+  background: linear-gradient(135deg, var(--c1, #fff) 50%, var(--c2, #000) 50%);
+}
+.team-card__badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+/* Info imediatamente abaixo do badge, alinhado com ele à esquerda */
+.team-card__info {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding: 10px 14px 10px 14px;   /* menos padding-top */
+}
+.team-card__info--with-badge {
+  padding-left: 14px;            /* alinha com a borda do badge */
+  margin-top: 14px;                /* encosta no badge */
+}
+.team-card__title {
+  font-weight: 900;
+  font-size: 16px;
+  text-align: left;
+}
+.team-card__subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+/* paleta compacta à direita */
+.team-card__dots { display:flex; align-items:center; gap:8px; }
+.team-card__dot { width:8px; height:8px; border-radius:999px; border:2px solid rgba(0,0,0,.15); }
+
+/* Sigla (fallback) com cor de fonte = cor detalhe e sombra pra contraste */
+.team-card__sigla {
+  font-weight: 900; font-size: 18px; letter-spacing:.6px;
+  color: var(--cd, #000);
+  text-shadow:
+    0 1px 2px rgba(0,0,0,.45),
+    0 0 1px rgba(255,255,255,.8);
+}
+
+/* Ações em duas linhas */
+.team-card__actions { padding: 0 14px 14px; display:grid; gap:10px; }
+.team-card__actions-row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+@media (max-width: 480px){
+  .team-card__actions-row { grid-template-columns: 1fr 1fr; }
+}
+
