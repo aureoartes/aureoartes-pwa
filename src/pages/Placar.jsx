@@ -1,5 +1,5 @@
 // src/pages/Placar.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 
@@ -17,46 +17,57 @@ export default function Placar() {
   const [timeA, setTimeA] = useState({ id: null, nome: "Time A", abrev: "" });
   const [timeB, setTimeB] = useState({ id: null, nome: "Time B", abrev: "" });
 
-  // Placar/estados
+  // Placar
   const [golsA, setGolsA] = useState(0);
   const [golsB, setGolsB] = useState(0);
 
-  // Períodos: 1T, 2T, (PR1, PR2), PEN
+  // Fases: 1T -> 2T -> (PR1 -> PR2) -> PEN
   const [fase, setFase] = useState("1T"); // "1T" | "2T" | "PR1" | "PR2" | "PEN"
   const [segRestantes, setSegRestantes] = useState(0);
   const [rodando, setRodando] = useState(false);
 
-  // Prorrogação e pênaltis
-  const [usaProrrogacao, setUsaProrrogacao] = useState(false); // habilitar fase PR1/PR2
-  const [durTempo, setDurTempo] = useState(10);  // minutos do tempo
-  const [durProrro, setDurProrro] = useState(5); // minutos da prorrogação
-  const [qtdPen, setQtdPen] = useState(5);       // regulares
+  // Configurações do campeonato
+  const [usaProrrogacao, setUsaProrrogacao] = useState(false);
+  const [durTempo, setDurTempo] = useState(10);   // min
+  const [durProrro, setDurProrro] = useState(5);  // min
+  const [qtdPen, setQtdPen] = useState(5);        // 1..5
+
+  // Pênaltis
   const [penA, setPenA] = useState(0);
   const [penB, setPenB] = useState(0);
 
-  // Informações extras (modo vinculado)
+  // Meta (modo vinculado)
   const [local, setLocal] = useState("");
-  const [dataHora, setDataHora] = useState(""); // ISO local (yyyy-MM-ddTHH:mm)
+  const [dataHora, setDataHora] = useState("");
 
   // Avulso: nomes livres
   const [nomeLivreA, setNomeLivreA] = useState("Time A");
   const [nomeLivreB, setNomeLivreB] = useState("Time B");
 
+  // Metadados para regra de mata-mata
+  const [isMataMata, setIsMataMata] = useState(false);
+  const [perna, setPerna] = useState(null);       // 1 | 2 | null
+  const [chaveId, setChaveId] = useState(null);
+  const [etapa, setEtapa] = useState(null);       // "pontos_corridos" | "grupos" | "oitavas" | "quartas" | "semifinal" | "final" | "eliminatorias"
+
+  // Outra perna (para agregado)
+  const [ida, setIda] = useState(null);
+
   const intervalRef = useRef(null);
 
-  // Carregar dados da partida/campeonato
+  // ==== Carregamento inicial ====
   useEffect(() => {
     if (isAvulso) {
-      // padrões avulsos
       setDurTempo(10);
       setUsaProrrogacao(false);
       setDurProrro(5);
       setQtdPen(5);
+      setFase("1T");
       setSegRestantes(10 * 60);
+      setRodando(false);
       return;
     }
     (async () => {
-      // partida
       const { data: p } = await supabase
         .from("partidas")
         .select("*")
@@ -66,7 +77,6 @@ export default function Placar() {
 
       setPartida(p);
 
-      // campeonato + configs
       const { data: c } = await supabase
         .from("campeonatos")
         .select("*")
@@ -83,6 +93,12 @@ export default function Placar() {
       setUsaProrrogacao(pr);
       setDurProrro(pr ? prMin : 5);
       setQtdPen(qpen);
+
+      // metadados de mata-mata
+      setIsMataMata(!!p.is_mata_mata);
+      setPerna(p.perna ?? null);
+      setChaveId(p.chave_id ?? null);
+      setEtapa(p.etapa || null);
 
       // times
       const ids = [p.time_a_id, p.time_b_id].filter(Boolean);
@@ -104,16 +120,28 @@ export default function Placar() {
       setPenA(p.penaltis_time_a ?? 0);
       setPenB(p.penaltis_time_b ?? 0);
       setLocal(p.local || "");
-      setDataHora(p.data_hora ? p.data_hora.substring(0, 16) : ""); // ISO->input-local
+      setDataHora(p.data_hora ? p.data_hora.substring(0, 16) : "");
 
-      // inicia com 1T parado
+      // Se for volta, buscar ida para agregado
+      if (p.chave_id && p.perna === 2) {
+        const { data: outras } = await supabase
+          .from("partidas")
+          .select("*")
+          .eq("chave_id", p.chave_id);
+        const idaMatch = (outras || []).find(x => x.perna === 1);
+        setIda(idaMatch || null);
+      } else {
+        setIda(null);
+      }
+
+      // Inicia SEMPRE em 1T e cronômetro do tempo regulamentar
       setFase("1T");
       setSegRestantes(tempoMin * 60);
       setRodando(false);
     })();
   }, [isAvulso, partidaId]);
 
-  // Timer
+  // ==== Timer ====
   useEffect(() => {
     if (!rodando) {
       clearInterval(intervalRef.current);
@@ -123,6 +151,10 @@ export default function Placar() {
       setSegRestantes((s) => {
         if (s <= 1) {
           clearInterval(intervalRef.current);
+          // Avança automaticamente quando zera (modo campeonato)
+          if (!isAvulso) {
+            avancarAutomaticoAposFim();
+          }
         }
         return Math.max(0, s - 1);
       });
@@ -130,37 +162,144 @@ export default function Placar() {
     return () => clearInterval(intervalRef.current);
   }, [rodando]);
 
-  // Altera fase define duração correspondente
-  function setFaseComTempo(novaFase) {
-    setFase(novaFase);
-    if (novaFase === "1T" || novaFase === "2T") {
-      setSegRestantes(durTempo * 60);
-    } else if (novaFase === "PR1" || novaFase === "PR2") {
-      setSegRestantes((usaProrrogacao ? durProrro : durTempo) * 60);
-    } else if (novaFase === "PEN") {
-      setSegRestantes(0); // sem cronômetro
-    }
+  // ==== Helpers de fase e regras ====
+  function setFaseComDuracao(f) {
+    setFase(f);
+    if (f === "1T" || f === "2T") setSegRestantes(durTempo * 60);
+    else if (f === "PR1" || f === "PR2") setSegRestantes((usaProrrogacao ? durProrro : durTempo) * 60);
+    else if (f === "PEN") setSegRestantes(0); // sem cronômetro
     setRodando(false);
   }
 
-  const titulo = isAvulso ? "Placar Eletrônico (Avulso)" : "Placar Eletrônico";
+  function labelFase(f) {
+    if (f === "1T") return "1º Tempo";
+    if (f === "2T") return "2º Tempo";
+    if (f === "PR1") return "Prorrogação — 1º Tempo";
+    if (f === "PR2") return "Prorrogação — 2º Tempo";
+    if (f === "PEN") return "Pênaltis";
+    return f;
+  }
 
-  const exibePenaltis = fase === "PEN";
+  function labelBotaoEncerrar() {
+    if (fase === "1T") return "Encerrar 1º tempo";
+    if (fase === "2T") return "Encerrar 2º tempo";
+    if (fase === "PR1") return "Encerrar PR1";
+    if (fase === "PR2") return "Encerrar PR2";
+    return "Encerrar período";
+  }
 
-  function fmtRelogio(sec) {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  // Regras
+  function isFaseDeGrupos() {
+    return etapa === "grupos";
+  }
+  function isPontosCorridos() {
+    return etapa === "pontos_corridos";
+  }
+  function isEliminatoria() {
+    return isMataMata === true;
+  }
+  function empateJogo() {
+    return golsA === golsB;
+  }
+  // agregado (só sentido na VOLTA com ida conhecida)
+  function agregadoEmpatadoAoFimDo2T() {
+    if (!isEliminatoria()) return false;
+    if (perna !== 2 || !ida) return false;
+    const idaA = ida?.gols_time_a ?? 0;
+    const idaB = ida?.gols_time_b ?? 0;
+    const voltaA = golsA;
+    const voltaB = golsB;
+    return (idaA + voltaA) === (idaB + voltaB);
+  }
+  // pode prorrogar ao fim do 2º tempo?
+  function podeProrrogacaoApos2T() {
+    if (!camp?.prorrogacao) return false;
+    if (isPontosCorridos() || isFaseDeGrupos()) return false; // nunca
+    if (!isEliminatoria()) return false;
+
+    // jogo único:
+    if (!perna) return empateJogo();
+
+    // ida:
+    if (perna === 1) return false;
+
+    // volta:
+    if (perna === 2) return agregadoEmpatadoAoFimDo2T();
+
+    return false;
+  }
+
+  // Avanço automático quando cronômetro zera (modo vinculado)
+  function avancarAutomaticoAposFim() {
+    setRodando(false);
+    encerrarPeriodo(false);
+  }
+
+  // Encerrar período (manual ou automático)
+  function encerrarPeriodo(perguntar = true) {
+    if (perguntar) {
+      const ok = confirm(`Confirma encerrar ${labelFase(fase)}?`);
+      if (!ok) return;
     }
+
+    if (fase === "1T") {
+      setFaseComDuracao("2T");
+      return;
+    }
+
+    if (fase === "2T") {
+      // Regras especiais ao fim do 2º tempo
+      if (podeProrrogacaoApos2T()) {
+        setFaseComDuracao("PR1");
+        return;
+      }
+
+      if (isEliminatoria()) {
+        // Eliminatória SEM prorrogação habilitada:
+        if (!camp?.prorrogacao) {
+          const jogoUnicoEmpatado = !perna && empateJogo();
+          const voltaAgregadoEmpatado = (perna === 2) && agregadoEmpatadoAoFimDo2T();
+          if (jogoUnicoEmpatado || voltaAgregadoEmpatado) {
+            setFase("PEN");
+            return;
+          }
+        }
+        // Caso contrário, se há vencedor (no tempo) ou agregado resolvido:
+        alert("Tempo regulamentar encerrado. Você pode encerrar a partida.");
+        return;
+      }
+
+      // Pontos corridos / fase de grupos: encerra (empate permitido)
+      alert("Tempo regulamentar encerrado. Você pode encerrar a partida.");
+      return;
+    }
+
+    if (fase === "PR1") {
+      setFaseComDuracao("PR2");
+      return;
+    }
+
+    if (fase === "PR2") {
+      // Se ainda empatado → pênaltis; senão encerrar
+      if (empateJogo()) {
+        setFase("PEN");
+      } else {
+        alert("Prorrogação encerrada. Você pode encerrar a partida.");
+      }
+      return;
+    }
+  }
 
   async function salvarVinculado(encerrar = false) {
     if (isAvulso || !partida) return;
     const payload = {
       gols_time_a: golsA,
       gols_time_b: golsB,
-      prorrogacao: usaProrrogacao && (fase === "PR1" || fase === "PR2" || (golsA === golsB && !exibePenaltis)),
-      penaltis_time_a: exibePenaltis ? penA : null,
-      penaltis_time_b: exibePenaltis ? penB : null,
+      prorrogacao:
+        usaProrrogacao &&
+        (fase === "PR1" || fase === "PR2" || (fase === "2T" && podeProrrogacaoApos2T())),
+      penaltis_time_a: fase === "PEN" ? penA : null,
+      penaltis_time_b: fase === "PEN" ? penB : null,
       local: local || null,
       data_hora: dataHora ? new Date(dataHora).toISOString() : null,
       encerrada: !!encerrar,
@@ -184,7 +323,14 @@ export default function Placar() {
     setRodando(false);
   }
 
-  // UI
+  const titulo = isAvulso ? "Placar Eletrônico (Avulso)" : "Placar Eletrônico";
+  function fmtRelogio(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  // === UI ===
   return (
     <div className="container">
       {/* Header */}
@@ -194,7 +340,7 @@ export default function Placar() {
             <h1 style={{ margin: 0 }}>{titulo}</h1>
             {!isAvulso && camp && (
               <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-                {camp.nome} — {camp.categoria} — {labelFormato(camp.formato)}
+                {camp.nome} — {camp.categoria}
               </div>
             )}
           </div>
@@ -207,7 +353,7 @@ export default function Placar() {
         </div>
       </div>
 
-      {/* Configuração rápida (avulso) */}
+      {/* Config avulso */}
       {isAvulso && (
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
           <div className="grid grid-2">
@@ -246,7 +392,7 @@ export default function Placar() {
         </div>
       )}
 
-      {/* Placar + Relógio */}
+      {/* Placar */}
       <div className="card" style={{ padding: 14 }}>
         {/* Linha de nomes */}
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -259,20 +405,27 @@ export default function Placar() {
           </div>
         </div>
 
-        {/* Placar numérico */}
+        {/* Placar numérico + Fase + Cronômetro */}
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
           <GoalBox label="Gols A" value={golsA} onInc={() => setGolsA((v) => v + 1)} onDec={() => setGolsA((v) => Math.max(0, v - 1))} />
+
           <div style={{ textAlign: "center" }}>
             <div className="text-muted" style={{ fontSize: 12, marginBottom: 4 }}>Fase</div>
-            <select className="select" value={fase} onChange={(e) => setFaseComTempo(e.target.value)}>
-              <option value="1T">1º Tempo</option>
-              <option value="2T">2º Tempo</option>
-              {usaProrrogacao && <option value="PR1">Prorrogação 1</option>}
-              {usaProrrogacao && <option value="PR2">Prorrogação 2</option>}
-              <option value="PEN">Pênaltis</option>
-            </select>
 
-            {/* Relógio */}
+            {/* Vinculado: rótulo fixo; Avulso: seletor livre */}
+            {!isAvulso ? (
+              <div className="badge">{labelFase(fase)}</div>
+            ) : (
+              <select className="select" value={fase} onChange={(e) => setFaseComDuracao(e.target.value)}>
+                <option value="1T">1º Tempo</option>
+                <option value="2T">2º Tempo</option>
+                {usaProrrogacao && <option value="PR1">Prorrogação 1</option>}
+                {usaProrrogacao && <option value="PR2">Prorrogação 2</option>}
+                <option value="PEN">Pênaltis</option>
+              </select>
+            )}
+
+            {/* Relógio (não exibe em PEN) */}
             {fase !== "PEN" && (
               <div style={{ marginTop: 8, fontSize: 28, fontWeight: 900 }}>{fmtRelogio(segRestantes)}</div>
             )}
@@ -284,14 +437,21 @@ export default function Placar() {
                 ) : (
                   <button className="btn btn--muted" onClick={() => setRodando(false)}>Pausar</button>
                 )}
-                <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
+
+                {/* Vinculado: Encerrar período sequencial; Avulso: Reiniciar período */}
+                {!isAvulso ? (
+                  <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)}>{labelBotaoEncerrar()}</button>
+                ) : (
+                  <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
+                )}
               </div>
             )}
           </div>
+
           <GoalBox label="Gols B" value={golsB} onInc={() => setGolsB((v) => v + 1)} onDec={() => setGolsB((v) => Math.max(0, v - 1))} />
         </div>
 
-        {/* Pênaltis */}
+        {/* Pênaltis (apenas quando fase = PEN) */}
         {fase === "PEN" && (
           <div className="row" style={{ marginTop: 12, justifyContent: "space-between", alignItems: "center" }}>
             <PenaltyBox label="Pênaltis A" value={penA} setValue={setPenA} qtd={qtdPen} />
@@ -301,10 +461,9 @@ export default function Placar() {
         )}
       </div>
 
-      {/* Meta (local/data) + ações */}
+      {/* Meta e Ações */}
       <div className="grid" style={{ marginTop: 12 }}>
         <div className="card" style={{ padding: 14 }}>
-          {/* meta só faz sentido no modo vinculado */}
           {!isAvulso && (
             <div className="grid grid-2">
               <div className="field">
@@ -326,7 +485,12 @@ export default function Placar() {
               </>
             ) : (
               <>
-                <button className="btn btn--orange" onClick={() => { setGolsA(0); setGolsB(0); setPenA(0); setPenB(0); setFaseComTempo("1T"); }}>Limpar</button>
+                <button
+                  className="btn btn--orange"
+                  onClick={() => { setGolsA(0); setGolsB(0); setPenA(0); setPenB(0); setFaseComDuracao("1T"); }}
+                >
+                  Limpar
+                </button>
               </>
             )}
           </div>
@@ -336,12 +500,7 @@ export default function Placar() {
   );
 }
 
-function labelFormato(v) {
-  if (v === "pontos_corridos") return "Pontos Corridos";
-  if (v === "grupos") return "Grupos";
-  if (v === "mata_mata") return "Mata-mata";
-  return v;
-}
+/* ===== Componentes auxiliares ===== */
 
 function GoalBox({ label, value, onInc, onDec }) {
   return (
@@ -363,7 +522,9 @@ function PenaltyBox({ label, value, setValue, qtd }) {
       <div style={{ fontSize: 28, fontWeight: 900 }}>{value}</div>
       <div className="row" style={{ justifyContent: "center", gap: 6, marginTop: 6 }}>
         <button className="btn btn--muted" onClick={() => setValue((v) => Math.max(0, v - 1))}>-1</button>
-        <button className="btn btn--primary" onClick={() => setValue((v) => v + 1)}>{value < qtd ? "+1" : "+1 (alternada)"}</button>
+        <button className="btn btn--primary" onClick={() => setValue((v) => v + 1)}>
+          {value < qtd ? "+1" : "+1 (alternada)"}
+        </button>
       </div>
     </div>
   );

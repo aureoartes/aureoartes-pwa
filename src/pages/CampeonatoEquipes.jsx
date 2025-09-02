@@ -1,23 +1,256 @@
 // src/pages/CampeonatoEquipes.jsx
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
 
+/* =========================
+   Helpers gerais / util
+   ========================= */
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function novaChaveId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "chave-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+function etapaFromCount(n) {
+  if (n === 2) return "final";
+  if (n === 4) return "semifinal";
+  if (n === 8) return "quartas";
+  if (n === 16) return "oitavas";
+  return "eliminatorias";
+}
+function grupoIndexToChar(idx) {
+  if (!idx || Number.isNaN(idx)) return "";
+  return String.fromCharCode(64 + Number(idx)); // 1->A, 2->B...
+}
+function grupoCharToIndex(ch) {
+  if (!ch) return null;
+  const u = String(ch).trim().toUpperCase();
+  const code = u.charCodeAt(0) - 64;
+  return code > 0 && code < 27 ? code : null;
+}
+function labelFormato(v) {
+  if (v === "pontos_corridos") return "Pontos Corridos";
+  if (v === "grupos") return "Grupos";
+  if (v === "mata_mata") return "Mata-mata";
+  return v;
+}
+
+/* =========================
+   Geradores de confrontos
+   ========================= */
+
+// 1) Pontos Corridos — round-robin, NUNCA mata-mata
+function gerarPontosCorridos(teamIds, idaVolta) {
+  const ids = [...teamIds];
+  let bye = null;
+  if (ids.length % 2 === 1) {
+    bye = "BYE";
+    ids.push(bye);
+  }
+  const n = ids.length;
+  const rounds = n - 1;
+  const half = n / 2;
+  const arr = [...ids];
+
+  const calendario = [];
+  for (let r = 0; r < rounds; r++) {
+    const rodada = [];
+    for (let i = 0; i < half; i++) {
+      const home = arr[i];
+      const away = arr[n - 1 - i];
+      if (home !== bye && away !== bye) {
+        rodada.push({
+          a: home,
+          b: away,
+          rodada: r + 1,
+          is_mata_mata: false,
+          etapa: "pontos_corridos",
+          perna: null,
+          chave_id: null,
+          grupo: null,
+        });
+      }
+    }
+    calendario.push(rodada);
+
+    // rotação (método do círculo)
+    const fixed = arr[0];
+    const rest = arr.slice(1);
+    rest.unshift(rest.pop());
+    arr.splice(0, n - 1, fixed, ...rest);
+  }
+
+  const partidas = calendario.flat();
+
+  if (idaVolta) {
+    const partidasVolta = partidas.map((p) => ({
+      a: p.b,
+      b: p.a,
+      rodada: p.rodada + rounds,
+      is_mata_mata: false,
+      etapa: "pontos_corridos",
+      perna: null,
+      chave_id: null,
+      grupo: null,
+    }));
+    return [...partidas, ...partidasVolta];
+  }
+  return partidas;
+}
+
+// 2) Grupos — round-robin por grupo; NUNCA mata-mata (eliminatórias vêm depois)
+function gerarGrupos(teamIds, numGrupos, idaVolta, gruposMapOpcional) {
+  const ids = [...teamIds];
+
+  // Se já temos grupos definidos em campeonato_times, respeitamos:
+  let gruposArr;
+  if (gruposMapOpcional && gruposMapOpcional.size) {
+    const buckets = new Map(); // grupoIdx -> ids[]
+    gruposMapOpcional.forEach((g, timeId) => {
+      const idx = g; // inteiro 1..N
+      if (!buckets.has(idx)) buckets.set(idx, []);
+      buckets.get(idx).push(timeId);
+    });
+    gruposArr = Array.from(buckets.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, list]) => list);
+  } else {
+    // distribuir automaticamente
+    const shuffled = shuffle(ids);
+    gruposArr = Array.from({ length: numGrupos }, () => []);
+    for (let i = 0; i < shuffled.length; i++) {
+      gruposArr[i % numGrupos].push(shuffled[i]);
+    }
+  }
+
+  const partidas = [];
+  let rodadaBase = 0;
+
+  gruposArr.forEach((g, idx) => {
+    const rr = gerarPontosCorridos(g, idaVolta);
+    const rrMap = rr.map((p) => ({
+      ...p,
+      rodada: p.rodada + rodadaBase,
+      etapa: "grupos",
+      is_mata_mata: false,
+      grupo: idx + 1, // 1=A, 2=B...
+    }));
+    partidas.push(...rrMap);
+    const maxRodadaGrupo = Math.max(0, ...rr.map((x) => x.rodada));
+    rodadaBase += maxRodadaGrupo;
+  });
+
+  partidas.sort((a, b) => a.rodada - b.rodada);
+  return partidas;
+}
+
+// 3) Mata-mata — TODAS as partidas são mata-mata; se ida/volta, pareia com mesma chave_id
+function gerarMataMata(teamIds, idaVolta) {
+  const ids = shuffle(teamIds);
+  let current = [...ids];
+  const partidas = [];
+  let rodada = 1;
+
+  function isPowerOfTwo(x) { return x && (x & (x - 1)) === 0; }
+
+  // Preliminares para chegar em potência de 2
+  while (!isPowerOfTwo(current.length)) {
+    const etapaNome = etapaFromCount(current.length);
+    const nova = [];
+    for (let i = 0; i < current.length; i += 2) {
+      if (i + 1 < current.length) {
+        const a = current[i], b = current[i + 1];
+        const chave = novaChaveId();
+        addConfronto(partidas, rodada, a, b, idaVolta, etapaNome, chave);
+        nova.push(`VENC_${rodada}_${i / 2}`);
+      } else {
+        // bye
+        nova.push(current[i]);
+      }
+    }
+    current = nova;
+    rodada++;
+  }
+
+  // Fase principal (potência de 2)
+  while (current.length > 1) {
+    const etapaNome = etapaFromCount(current.length);
+    const nova = [];
+    for (let i = 0; i < current.length; i += 2) {
+      const a = current[i], b = current[i + 1];
+      const chave = novaChaveId();
+      addConfronto(partidas, rodada, a, b, idaVolta, etapaNome, chave);
+      nova.push(`VENC_${rodada}_${i / 2}`);
+    }
+    current = nova;
+    rodada++;
+  }
+
+  return partidas;
+
+  function addConfronto(list, rodadaNum, a, b, volta, etapaNome, chaveId) {
+    if (!volta) {
+      list.push({
+        a, b, rodada: rodadaNum,
+        is_mata_mata: true,
+        etapa: etapaNome,
+        perna: null,
+        chave_id: chaveId,
+        grupo: null,
+      });
+      return;
+    }
+    // Ida (perna 1)
+    list.push({
+      a, b, rodada: rodadaNum,
+      is_mata_mata: true,
+      etapa: etapaNome,
+      perna: 1,
+      chave_id: chaveId,
+      grupo: null,
+    });
+    // Volta (perna 2) invertendo o mando
+    list.push({
+      a: b, b: a, rodada: rodadaNum,
+      is_mata_mata: true,
+      etapa: etapaNome,
+      perna: 2,
+      chave_id: chaveId,
+      grupo: null,
+    });
+  }
+}
+
+/* =========================
+   Página
+   ========================= */
 export default function CampeonatoEquipes() {
   const { id: campeonatoId } = useParams();
   const navigate = useNavigate();
 
+  const [loading, setLoading] = useState(true);
   const [camp, setCamp] = useState(null);
-  const [allTimes, setAllTimes] = useState([]);
-  const [selecionados, setSelecionados] = useState(new Set()); // time_ids
-  const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
 
-  // carrega campeonato + limites
+  const [meusTimes, setMeusTimes] = useState([]);
+  const [campTimes, setCampTimes] = useState([]); // [{id, time_id, nome, abreviacao, grupoIndex}]
+
+  const [ordem, setOrdem] = useState("alfabetica");
+  const [processando, setProcessando] = useState(false);
+
+  // Carregar campeonato + times
   useEffect(() => {
     (async () => {
+      setLoading(true);
+
       const { data: c } = await supabase
         .from("campeonatos")
         .select("*")
@@ -25,336 +258,385 @@ export default function CampeonatoEquipes() {
         .single();
       setCamp(c || null);
 
-      if (c) {
-        // times do usuário na MESMA categoria do campeonato
-        const { data: times } = await supabase
-          .from("times")
-          .select("*")
-          .eq("usuario_id", USUARIO_ID)
-          .eq("categoria", c.categoria)
-          .order("nome", { ascending: true });
-        setAllTimes(times || []);
+      const { data: ts } = await supabase
+        .from("times")
+        .select("id, usuario_id, nome, abreviacao, cor1, cor2, cor_detalhe, categoria, criado_em")
+        .eq("usuario_id", USUARIO_ID)
+        .order("nome", { ascending: true });
+      setMeusTimes(ts || []);
 
-        // times já vinculados
-        const { data: vincs } = await supabase
-          .from("campeonato_times")
-          .select("time_id")
-          .eq("campeonato_id", campeonatoId);
-        const setSel = new Set((vincs || []).map((v) => v.time_id));
-        setSelecionados(setSel);
-      }
+      const { data: cts } = await supabase
+        .from("campeonato_times")
+        .select("id, campeonato_id, time_id, grupo")
+        .eq("campeonato_id", campeonatoId);
+
+      const mapa = new Map((ts || []).map((t) => [t.id, t]));
+      const lista = (cts || []).map((ct) => {
+        const t = mapa.get(ct.time_id);
+        return {
+          id: ct.id,
+          time_id: ct.time_id,
+          nome: t?.nome || "(time removido)",
+          abreviacao: t?.abreviacao || "",
+          grupoIndex: grupoCharToIndex(ct.grupo),
+        };
+      });
+      setCampTimes(lista);
+
+      setLoading(false);
     })();
   }, [campeonatoId]);
 
-  const maxTimes = camp?.numero_equipes || 0;
-  const faltam = Math.max(0, maxTimes - selecionados.size);
+  const numGrupos = useMemo(() => camp?.numero_grupos || 0, [camp]);
+  const isGrupos = camp?.formato === "grupos";
+  const isPontos = camp?.formato === "pontos_corridos";
+  const isMataMata = camp?.formato === "mata_mata";
+  const idaVolta = !!camp?.ida_volta;
 
-  function toggleTime(tid) {
-    const clone = new Set(selecionados);
-    if (clone.has(tid)) clone.delete(tid);
-    else {
-      if (clone.size >= maxTimes) {
-        alert(`Limite atingido: ${maxTimes} equipes.`);
+  // Ordenação
+  const meusTimesOrdenados = useMemo(() => {
+    const arr = [...(meusTimes || [])];
+    if (ordem === "alfabetica") arr.sort((a, b) => (a?.nome || "").localeCompare(b?.nome || ""));
+    if (ordem === "mais_recente") arr.sort((a, b) => (b?.criado_em || "").localeCompare(a?.criado_em || ""));
+    return arr;
+  }, [meusTimes, ordem]);
+
+  /* ===== Ações: adicionar/remover/editar grupo ===== */
+
+  async function addTimeAoCampeonato(timeId) {
+    try {
+      if (!timeId) return;
+      const jaExiste = Array.isArray(campTimes) && campTimes.some((x) => x?.time_id === timeId);
+      if (jaExiste) return;
+
+      const payload = { campeonato_id: campeonatoId, time_id: timeId, grupo: null };
+
+      let inserted = null;
+      {
+        const { data, error } = await supabase
+          .from("campeonato_times")
+          .insert([payload])
+          .select()
+          .single();
+        if (error) {
+          // fallback (RLS pode bloquear returning)
+          const { data: fallback, error: e2 } = await supabase
+            .from("campeonato_times")
+            .select("*")
+            .eq("campeonato_id", campeonatoId)
+            .eq("time_id", timeId)
+            .order("id", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (e2) throw error;
+          inserted = fallback || null;
+        } else {
+          inserted = data || null;
+        }
+      }
+
+      if (!inserted) {
+        alert("❌ Não foi possível confirmar a inserção.");
         return;
       }
-      clone.add(tid);
+
+      const timeInfo = Array.isArray(meusTimes) ? meusTimes.find((t) => t.id === timeId) : null;
+
+      setCampTimes((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        return [
+          ...base,
+          {
+            id: inserted.id || null,
+            time_id: timeId,
+            nome: timeInfo?.nome || "(sem nome)",
+            abreviacao: timeInfo?.abreviacao || "",
+            grupoIndex: null,
+          },
+        ];
+      });
+    } catch (err) {
+      console.error(err);
+      alert("❌ Erro ao adicionar time ao campeonato.");
     }
-    setSelecionados(clone);
   }
 
-  async function salvarParticipantes() {
-    if (!camp) return;
-    setSaving(true);
+  async function removerTimeDoCampeonato(ctId) {
     try {
-      // remove todos e reinsere (simples e robusto)
-      await supabase.from("campeonato_times").delete().eq("campeonato_id", campeonatoId);
-      if (selecionados.size > 0) {
-        const rows = Array.from(selecionados).map((time_id) => ({
-          campeonato_id: campeonatoId,
-          time_id,
-        }));
-        const { error } = await supabase.from("campeonato_times").insert(rows);
-        if (error) throw error;
+      if (!ctId) return;
+      const ok = confirm("Remover este time do campeonato?");
+      if (!ok) return;
+      const { error } = await supabase.from("campeonato_times").delete().eq("id", ctId);
+      if (error) throw error;
+      setCampTimes((prev) => (Array.isArray(prev) ? prev.filter((x) => x?.id !== ctId) : []));
+    } catch (err) {
+      console.error(err);
+      alert("❌ Erro ao remover time do campeonato.");
+    }
+  }
+
+  async function setGrupo(ctId, idx) {
+    try {
+      const val = idx ? parseInt(idx, 10) : null;
+      const ch = val ? grupoIndexToChar(val) : null;
+      const { error } = await supabase.from("campeonato_times").update({ grupo: ch }).eq("id", ctId);
+      if (error) throw error;
+      setCampTimes((prev) =>
+        (Array.isArray(prev) ? prev : []).map((x) => (x?.id === ctId ? { ...x, grupoIndex: val } : x))
+      );
+    } catch (err) {
+      console.error(err);
+      alert("❌ Erro ao atualizar grupo.");
+    }
+  }
+
+  /* ===== Validações ===== */
+  function validarMinimos() {
+    const qtd = (campTimes || []).length;
+
+    if (isPontos) {
+      if (qtd < 4) return "Pontos corridos exigem no mínimo 4 times.";
+      return null;
+    }
+
+    if (isMataMata) {
+      if (qtd < 4) return "Mata-mata exige no mínimo 4 times.";
+      return null;
+    }
+
+    if (isGrupos) {
+      if (numGrupos < 2) return "Fase de grupos exige no mínimo 2 grupos.";
+      // buckets por grupo
+      const buckets = new Map();
+      (campTimes || []).forEach((ct) => {
+        const idx = ct?.grupoIndex || 1;
+        if (!buckets.has(idx)) buckets.set(idx, []);
+        buckets.get(idx).push(ct?.time_id);
+      });
+      if (buckets.size < 2) return "Distribua os times em pelo menos 2 grupos.";
+      for (const [, arr] of buckets) {
+        if ((arr || []).length < 3) return "Cada grupo deve ter no mínimo 3 times.";
       }
-      alert("Participantes salvos!");
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao salvar participantes.");
-    } finally {
-      setSaving(false);
+      return null;
     }
+
+    return "Formato de campeonato inválido.";
   }
 
-  // Util: embaralhar
-  function shuffle(arr) {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  // ====== Geração de tabela por formato ======
+  /* ===== Gerar Tabela ===== */
   async function gerarTabela() {
-    if (!camp) return;
-    if (selecionados.size < (camp.formato === "pontos_corridos" ? 4 : 4)) {
-      alert("Quantidade mínima de equipes não atingida para este formato.");
+    const erro = validarMinimos();
+    if (erro) {
+      alert("❌ " + erro);
       return;
     }
-    if (selecionados.size !== camp.numero_equipes) {
-      const ok = confirm(
-        `Você selecionou ${selecionados.size} times, mas o campeonato está configurado para ${camp.numero_equipes}. Continuar mesmo assim?`
-      );
-      if (!ok) return;
-    }
 
-    setGenerating(true);
+    const ok = confirm("Gerar a Tabela de Partidas? Isto apagará partidas já existentes deste campeonato.");
+    if (!ok) return;
+
     try {
-      // Limpa partidas anteriores do campeonato (opcional/seguro)
+      setProcessando(true);
+
+      // 1) Zera partidas existentes
       await supabase.from("partidas").delete().eq("campeonato_id", campeonatoId);
 
-      const timesSel = allTimes.filter((t) => selecionados.has(t.id));
-      const ids = shuffle(timesSel.map((t) => t.id));
-
+      // 2) Monta confrontos conforme formato
       let partidas = [];
-      if (camp.formato === "pontos_corridos") {
-        partidas = gerarPontosCorridos(ids, camp.ida_volta);
-      } else if (camp.formato === "grupos") {
-        partidas = gerarGrupos(ids, camp.numero_grupos || 2, camp.ida_volta);
-      } else if (camp.formato === "mata_mata") {
-        partidas = gerarMataMata(ids, camp.ida_volta);
+      if (isPontos) {
+        const ids = (campTimes || []).map((x) => x.time_id);
+        partidas = gerarPontosCorridos(ids, idaVolta);
+      } else if (isGrupos) {
+        const gruposMap = new Map();
+        (campTimes || []).forEach((ct) => {
+          const idx = ct?.grupoIndex || 1;
+          gruposMap.set(ct.time_id, idx);
+        });
+        const ids = (campTimes || []).map((x) => x.time_id);
+        partidas = gerarGrupos(ids, numGrupos, idaVolta, gruposMap);
+      } else if (isMataMata) {
+        const ids = (campTimes || []).map((x) => x.time_id);
+        partidas = gerarMataMata(ids, idaVolta);
       }
 
-      if (partidas.length === 0) {
-        alert("Nenhuma partida gerada. Verifique os parâmetros.");
-        return;
-      }
-
-      // Insere em public.partidas
-      const rows = partidas.map((p) => ({
+      // 3) Insere no banco com metadados
+      const rows = (partidas || []).map((p) => ({
         campeonato_id: campeonatoId,
         rodada: p.rodada,
         time_a_id: p.a,
         time_b_id: p.b,
-        // gols defaults já são 0 no banco
-        prorrogação: false, // sua coluna na tabela foi renomeada para "prorrogacao"
-        prorrogacao: false,
+
+        // estado inicial
+        gols_time_a: 0,
+        gols_time_b: 0,
+        prorrogacao: false, // coluna sem acento
+        penaltis_time_a: null,
+        penaltis_time_b: null,
         data_hora: null,
         local: null,
         encerrada: false,
+
+        // metadados
+        is_mata_mata: !!p.is_mata_mata,
+        etapa: p.etapa || null,
+        perna: p.perna ?? null,
+        chave_id: p.chave_id || null,
+        grupo: p.grupo ?? null,
       }));
 
-      // Corrige nome da coluna "prorrogacao" (sem acento)
-      rows.forEach((r) => {
-        delete r["prorrogação"];
-        r["prorrogacao"] = false;
-      });
+      if (!rows.length) {
+        alert("Nenhuma partida foi gerada com os parâmetros atuais.");
+        setProcessando(false);
+        return;
+      }
 
-      const { error } = await supabase.from("partidas").insert(rows);
-      if (error) throw error;
+      const chunkSize = 500;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const slice = rows.slice(i, i + chunkSize);
+        const { error } = await supabase.from("partidas").insert(slice);
+        if (error) throw error;
+      }
 
-      alert(`✅ Geramos ${rows.length} partidas!`);
-      navigate("/campeonatos");
+      alert("✅ Tabela gerada com sucesso!");
+      navigate(`/campeonatos/${campeonatoId}/partidas`);
     } catch (e) {
       console.error(e);
-      alert("Erro ao gerar a tabela.");
+      alert("❌ Erro ao gerar a tabela.");
     } finally {
-      setGenerating(false);
+      setProcessando(false);
     }
   }
 
-  // ===== Algoritmos =====
-  // 1) Pontos Corridos (Round-robin de Berger; lida com ímpar com 'bye')
-  function gerarPontosCorridos(teamIds, idaVolta) {
-    const ids = [...teamIds];
-    let bye = null;
-    if (ids.length % 2 === 1) {
-      bye = "BYE";
-      ids.push(bye);
-    }
-    const n = ids.length;
-    const rounds = n - 1;
-    const half = n / 2;
-    const arr = [...ids];
-
-    const calendario = [];
-    for (let r = 0; r < rounds; r++) {
-      const rodada = [];
-      for (let i = 0; i < half; i++) {
-        const home = arr[i];
-        const away = arr[n - 1 - i];
-        if (home !== bye && away !== bye) rodada.push({ a: home, b: away });
-      }
-      calendario.push(rodada);
-
-      // rotação (método círculo)
-      const fixed = arr[0];
-      const rest = arr.slice(1);
-      rest.unshift(rest.pop());
-      arr.splice(0, n - 1, fixed, ...rest);
-    }
-
-    // gera lista com rodada numerada
-    const partidas = [];
-    let rodadaNum = 1;
-    calendario.forEach((rod) => {
-      rod.forEach((j) => partidas.push({ rodada: rodadaNum, ...j }));
-      rodadaNum++;
-    });
-
-    if (idaVolta) {
-      // jogos de volta invertendo mando
-      const partidasVolta = partidas.map((p) => ({
-        rodada: p.rodada + rounds,
-        a: p.b,
-        b: p.a,
-      }));
-      return [...partidas, ...partidasVolta];
-    }
-    return partidas;
+  /* ===== Render ===== */
+  if (loading || !camp) {
+    return (
+      <div className="container">
+        <div className="card" style={{ padding: 14 }}>Carregando…</div>
+      </div>
+    );
   }
 
-  // 2) Grupos (divide em grupos ~iguais; todos contra todos no grupo)
-  function gerarGrupos(teamIds, numGrupos, idaVolta) {
-    const ids = [...teamIds];
-    // embaralha
-    const shuffled = shuffle(ids);
-    // divide em numGrupos baldes
-    const grupos = Array.from({ length: numGrupos }, () => []);
-    for (let i = 0; i < shuffled.length; i++) {
-      grupos[i % numGrupos].push(shuffled[i]);
-    }
-
-    const partidas = [];
-    let baseRodada = 1;
-    grupos.forEach((g) => {
-      const jogos = gerarPontosCorridos(g, idaVolta); // reaproveita round-robin
-      // remapeia as rodadas para não conflitar (empilha as rodadas dos grupos)
-      jogos.forEach((j) => partidas.push({ rodada: j.rodada + baseRodada - 1, a: j.a, b: j.b }));
-      baseRodada += Math.max(...jogos.map((j) => j.rodada), 0);
-    });
-
-    return partidas.sort((x, y) => x.rodada - y.rodada);
-  }
-
-  // 3) Mata-mata (ajusta p/ múltiplos de 4; preliminar se necessário; ida/volta opcional)
-  function gerarMataMata(teamIds, idaVolta) {
-    // regra: “a segunda rodada deve ter nº de times múltiplo de 4”
-    const ids = shuffle(teamIds);
-    let current = [...ids];
-    const partidas = [];
-    let rodada = 1;
-
-    // se não for potência de 2, cria eliminatórias preliminares até chegar em múltiplo de 4 na próxima fase
-    function nextPow2(x) {
-      let p = 1;
-      while (p < x) p <<= 1;
-      return p;
-    }
-
-    // fase preliminar se necessário (por ex: 5, 6, 10, etc.)
-    while (current.length & (current.length - 1)) {
-      // se não é potência de 2, remove 2 de cada vez formando uma partida preliminar
-      const a = current.pop();
-      const b = current.pop();
-      addJogo(partidas, rodada, a, b, idaVolta);
-      // vencedor fictício entra na próxima (aqui não sabemos o id; na prática o placar definirá)
-      // Para cadastro da chave agora, registramos só as partidas; a progressão real ocorre no resultado.
-      if (current.length % 2 === 1) rodada++;
-    }
-
-    // agora current.length é potência de 2
-    while (current.length > 1) {
-      const novaFase = [];
-      for (let i = 0; i < current.length; i += 2) {
-        const a = current[i];
-        const b = current[i + 1];
-        addJogo(partidas, rodada, a, b, idaVolta);
-        // placeholder de vencedor
-        novaFase.push(`VENC_${rodada}_${i / 2}`);
-      }
-      current = novaFase;
-      rodada++;
-    }
-
-    return partidas;
-
-    function addJogo(list, r, a, b, volta) {
-      list.push({ rodada: r, a, b });
-      if (volta) list.push({ rodada: r + 1000, a: b, b: a }); // 1000 desloca “rodada de volta” só para ordenar depois
-    }
-  }
-
-  if (!camp) return <div className="container"><div className="card" style={{padding:16}}>Carregando…</div></div>;
+  const maxTimesInfo = "(máx. conforme plano do usuário)";
 
   return (
     <div className="container">
+      {/* Header */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h1 style={{ margin: 0 }}>{camp.nome}</h1>
-            <div className="text-muted" style={{ fontSize: 13 }}>
-              {camp.categoria} — {camp.formato.replace("_", " ")} — máximo {camp.numero_equipes} equipes
+            <h1 style={{ margin: 0 }}>Equipes do Campeonato</h1>
+            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+              {camp.nome} — {camp.categoria} — {labelFormato(camp.formato)} — {idaVolta ? "Ida e Volta" : "Jogo único"}<br />
+              {isGrupos ? `Grupos: ${numGrupos}` : "Sem grupos"} — {maxTimesInfo}
             </div>
           </div>
-          <Link to="/campeonatos" className="btn btn--muted">Voltar</Link>
+          <div className="row" style={{ gap: 6 }}>
+            <Link to={`/campeonatos`} className="btn btn--muted">Voltar</Link>
+            <Link to={`/campeonatos/${campeonatoId}/partidas`} className="btn btn--muted">Partidas</Link>
+          </div>
         </div>
       </div>
 
-      <div className="grid">
-        {/* Box seleção de equipes */}
+      {/* Painel principal: Catálogo + Times do campeonato */}
+      <div className="grid grid-2">
+        {/* Meus times */}
         <div className="card" style={{ padding: 14 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h3 style={{ margin: 0 }}>Participantes ({selecionados.size}/{maxTimes})</h3>
-            <button className="btn btn--orange" onClick={salvarParticipantes} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar Participantes"}
-            </button>
+            <h3 style={{ margin: 0 }}>Meus Times</h3>
+            <div className="row" style={{ gap: 8 }}>
+              <label className="label" style={{ margin: 0 }}>Ordenar:</label>
+              <select className="select" value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+                <option value="alfabetica">Ordem alfabética</option>
+                <option value="mais_recente">Mais recente</option>
+              </select>
+            </div>
           </div>
-          <div className="grid grid-3" style={{ marginTop: 12 }}>
-            {allTimes.length === 0 && (
-              <div className="text-muted">Você ainda não tem times nesta categoria.</div>
-            )}
-            {allTimes.map((t) => {
-              const sel = selecionados.has(t.id);
+
+          <ul className="list" style={{ marginTop: 8 }}>
+            {(meusTimesOrdenados || []).map((t) => {
+              const ja = Array.isArray(campTimes) && campTimes.some((x) => x?.time_id === t?.id);
               return (
-                <label key={t.id} className="card" style={{ padding: 12, cursor: "pointer", borderColor: sel ? "#FB8C00" : undefined }}>
-                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <li key={t?.id || Math.random()} className="list__item">
+                  <div className="list__left">
+                    <div className="palette-dot" style={{ background: t?.cor1 || "#fff" }}></div>
+                    <div className="palette-dot" style={{ background: t?.cor2 || "#000" }}></div>
                     <div>
-                      <div className="text-strong">{t.nome}</div>
-                      <div className="text-muted" style={{ fontSize: 12 }}>{t.abreviacao}</div>
+                      <div className="list__title">{t?.nome || "(sem nome)"}</div>
+                      <div className="list__subtitle">{t?.abreviacao || "—"}</div>
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={sel}
-                      onChange={() => toggleTime(t.id)}
-                    />
                   </div>
-                </label>
+                  <div>
+                    <button
+                      className="btn btn--orange"
+                      disabled={ja}
+                      onClick={() => addTimeAoCampeonato(t?.id)}
+                    >
+                      {ja ? "Adicionado" : "Adicionar"}
+                    </button>
+                  </div>
+                </li>
               );
             })}
-          </div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <div className="badge">Faltam {faltam}</div>
-          </div>
+          </ul>
         </div>
 
-        {/* Box geração */}
+        {/* Times no campeonato */}
         <div className="card" style={{ padding: 14 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h3 style={{ margin: 0 }}>Gerador Automático</h3>
-            <button
-              className="btn btn--primary"
-              onClick={gerarTabela}
-              disabled={generating || selecionados.size < 2}
-              title="Gera a tabela de jogos conforme o formato e as regras do campeonato"
-            >
-              {generating ? "Gerando..." : "Gerar Tabela de Partidas"}
+          <h3 style={{ margin: 0 }}>
+            Times no Campeonato {(Array.isArray(campTimes) ? campTimes.length : 0)}
+          </h3>
+
+          {!Array.isArray(campTimes) || campTimes.length === 0 ? (
+            <p className="text-muted" style={{ marginTop: 8 }}>Nenhum time adicionado ainda.</p>
+          ) : (
+            <ul className="list" style={{ marginTop: 8 }}>
+              {campTimes.map((ct) => {
+                if (!ct) return null;
+                return (
+                  <li key={ct.id || `${ct.time_id}-${Math.random()}`} className="list__item">
+                    <div className="list__left">
+                      <div>
+                        <div className="list__title">{ct.nome || "(sem nome)"}</div>
+                        <div className="list__subtitle">{ct.abreviacao || "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="row" style={{ gap: 8 }}>
+                      {isGrupos && (
+                        <select
+                          className="select"
+                          value={ct.grupoIndex || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setGrupo(ct.id, val ? parseInt(val, 10) : null);
+                          }}
+                          style={{ width: 110 }}
+                        >
+                          <option value="">Grupo…</option>
+                          {Array.from({ length: numGrupos || 0 }, (_, i) => i + 1).map((idx) => (
+                            <option key={idx} value={idx}>Grupo {grupoIndexToChar(idx)}</option>
+                          ))}
+                        </select>
+                      )}
+                      <button
+                        className="btn btn--red"
+                        onClick={() => (ct.id ? removerTimeDoCampeonato(ct.id) : null)}
+                        disabled={!ct.id}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {/* Gerar tabela */}
+          <div className="row" style={{ gap: 8, marginTop: 12 }}>
+            <button className="btn btn--orange" onClick={gerarTabela} disabled={processando}>
+              {processando ? "Gerando..." : "Gerar Tabela de Partidas"}
             </button>
           </div>
-          <p className="text-muted" style={{ marginTop: 8, fontSize: 13 }}>
-            Sorteio interno aleatório nesta versão. Depois adicionamos “refazer sorteio” e realocação manual (plano Full).
-          </p>
         </div>
       </div>
     </div>
