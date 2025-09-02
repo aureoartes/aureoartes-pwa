@@ -1,4 +1,4 @@
-// src/pages/CampeonatoPartidas.jsx
+// src/pages/CampeonatoPartidas.jsx (atualizado)
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
@@ -75,10 +75,15 @@ export default function CampeonatoPartidas() {
   function abrevTime(id) {
     return timesMap.get(id)?.abreviacao || "";
   }
+  function siglaOuTraco(id) {
+    const s = abrevTime(id);
+    return s && s.trim() ? s : "—";
+  }
   function fmtGrupo(g) {
     if (!g) return null;
     // se vier int (1=A, 2=B...), se já for string/char manter
-    if (typeof g === "number") return String.fromCharCode("A".charCodeAt(0) + g - 1);
+    if (typeof g === "number")
+      return String.fromCharCode("A".charCodeAt(0) + g - 1);
     // se vier string tipo "A" manter
     const s = String(g).trim();
     if (s.length === 1 && /[A-Z]/i.test(s)) return s.toUpperCase();
@@ -92,6 +97,12 @@ export default function CampeonatoPartidas() {
     const hora = String(d.getHours()).padStart(2, "0");
     const min = String(d.getMinutes()).padStart(2, "0");
     return `${dia}/${mes} ${hora}:${min}`;
+  }
+  function hasTwoTeams(p) {
+    return !!(p?.time_a_id && p?.time_b_id);
+  }
+  function golsOuTraco(v) {
+    return typeof v === "number" ? v : "—";
   }
 
   // montar lista com label de grupo (se formato = grupos)
@@ -128,9 +139,26 @@ export default function CampeonatoPartidas() {
       arr = arr.filter((p) => !!p.encerrada);
     }
 
-    arr.sort((a, b) => a.rodada - b.rodada || nomeTime(a.time_a_id).localeCompare(nomeTime(b.time_a_id)));
+    arr.sort(
+      (a, b) =>
+        a.rodada - b.rodada || nomeTime(a.time_a_id).localeCompare(nomeTime(b.time_a_id))
+    );
     return arr;
   }, [partidasDecoradas, rodadaSel, statusSel]);
+
+  // >>> AGRUPAMENTO VISUAL POR RODADA / FASE (grupoLabel quando houver)
+  const gruposPorCabecalho = useMemo(() => {
+    const map = new Map();
+    for (const p of partidasFiltradas) {
+      const cabRod = p.rodada != null ? `Rodada ${p.rodada}` : "Sem rodada";
+      const cabGrupo = p.grupoLabel ? ` — ${p.grupoLabel}` : "";
+      const header = cabRod + cabGrupo;
+      if (!map.has(header)) map.set(header, []);
+      map.get(header).push(p);
+    }
+    // retorna lista de [header, partidas[]]
+    return Array.from(map.entries());
+  }, [partidasFiltradas]);
 
   if (loading || !camp) {
     return (
@@ -184,51 +212,84 @@ export default function CampeonatoPartidas() {
         </div>
       </div>
 
-      {/* LISTA */}
-      {partidasFiltradas.length === 0 ? (
+      {/* LISTA AGRUPADA */}
+      {gruposPorCabecalho.length === 0 ? (
         <div className="card" style={{ padding: 16 }}>
           <p style={{ margin: 0 }}>Nenhuma partida encontrada com os filtros atuais.</p>
         </div>
       ) : (
-        <ul className="list card">
-          {partidasFiltradas.map((p) => {
-            const timeA = nomeTime(p.time_a_id);
-            const timeB = nomeTime(p.time_b_id);
-            const placar = p.encerrada
-              ? `${p.gols_time_a ?? 0} x ${p.gols_time_b ?? 0}`
-              : "— x —";
-            const infos = [
-              `Rodada ${p.rodada}`,
-              p.grupoLabel || null,
-              fmtDataHora(p.data_hora),
-              p.local || "Local a definir",
-            ].filter(Boolean).join(" — ");
+        <div className="card" style={{ padding: 0 }}>
+          {gruposPorCabecalho.map(([header, items]) => (
+            <section key={header} style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
+              <div style={{
+                fontWeight: 700,
+                fontSize: 14,
+                marginBottom: 8,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                color: "var(--muted)"
+              }}>{header}</div>
 
-            return (
-              <li key={p.id} className="list__item">
-                <div className="list__left" style={{ minWidth: 0 }}>
-                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
-                    <div className="list__title" title={`${timeA} vs ${timeB}`}>
-                      <strong>{abrevTime(p.time_a_id) || timeA}</strong> vs <strong>{abrevTime(p.time_b_id) || timeB}</strong> — {placar}
-                    </div>
-                    <div className="list__subtitle" title={infos}>{infos}</div>
-                  </div>
-                </div>
+              <ul className="list" style={{ margin: 0 }}>
+                {items.map((p) => {
+                  const timeA = nomeTime(p.time_a_id);
+                  const timeB = nomeTime(p.time_b_id);
+                  const infos = [
+                    fmtDataHora(p.data_hora),
+                    p.local || "Local a definir",
+                  ].filter(Boolean).join(" — ");
 
-                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                <button
-                    className="btn btn--primary"
-                    onClick={() => navigate(`/partidas/${p.id}/placar`)}
-                >
-                    Abrir Placar
-                </button>
-                </div>
+                  return (
+                    <li key={p.id} className="list__item">
+                      <div className="list__left" style={{ minWidth: 0 }}>
+                        {/* LINHA DE PLACAR NO NOVO PADRÃO */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <TeamIcon enabled={!!p.time_a_id} />
+                          <span className="mono" style={{ minWidth: 28, textAlign: "right" }}>
+                            {siglaOuTraco(p.time_a_id)}
+                          </span>
+                          <span style={{ fontWeight: 700 }}>{golsOuTraco(p.gols_time_a)}</span>
+                          <span style={{ opacity: 0.7 }}>x</span>
+                          <span style={{ fontWeight: 700 }}>{golsOuTraco(p.gols_time_b)}</span>
+                          <span className="mono" style={{ minWidth: 28, textAlign: "left" }}>
+                            {siglaOuTraco(p.time_b_id)}
+                          </span>
+                          <TeamIcon enabled={!!p.time_b_id} />
+                        </div>
+                        {/* SUBINFORMAÇÕES */}
+                        <div className="list__subtitle" title={infos}>{infos}</div>
+                      </div>
 
-              </li>
-            );
-          })}
-        </ul>
+                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                        <button
+                          className="btn btn--primary"
+                          onClick={() => navigate(`/partidas/${p.id}/placar`)}
+                          disabled={!hasTwoTeams(p)}
+                          title={hasTwoTeams(p) ? "Abrir placar" : "Defina os dois times para habilitar"}
+                        >
+                          Abrir Placar
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
+
+      {/* ESTILOS LOCAIS PARA O ÍCONE PADRÃO */}
+      <style>{`
+        .team-icon {
+          width: 22px; height: 22px; border-radius: 50%;
+          display: inline-block; flex-shrink: 0;
+          background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.9), rgba(220,220,220,.9) 40%, rgba(0,0,0,.08) 41%);
+          box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.08);
+        }
+        .team-icon--empty { background: transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      `}</style>
     </div>
   );
 
@@ -238,4 +299,9 @@ export default function CampeonatoPartidas() {
     if (v === "mata_mata") return "Mata-mata";
     return v;
   }
+}
+
+// Componente simples para ícone padrão do time
+function TeamIcon({ enabled }) {
+  return <span className={`team-icon${enabled ? "" : " team-icon--empty"}`} aria-hidden />;
 }

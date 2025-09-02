@@ -1,282 +1,595 @@
+// src/pages/Times.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
-import CollapsibleSection from "../components/CollapsibleSection.jsx";
-import ColorPickerCompact from "../components/ColorPickerCompact";
+import { hexToRgb, luminance } from "../utils/colors"; // <<< contraste dinâmico
+
+// Paleta fixa do projeto (compacta)
+const COLOR_OPTIONS = [
+  { key: "branco", value: "#FFFFFF" },
+  { key: "preto", value: "#000000" },
+  { key: "vermelho", value: "#E53935" },
+  { key: "verde", value: "#43A047" },
+  { key: "verde-escuro", value: "#1B5E20" },
+  { key: "azul", value: "#1E88E5" },
+  { key: "azul-escuro", value: "#0D47A1" },
+  { key: "grena", value: "#7B1E3C" },
+  { key: "amarelo", value: "#FBC02D" },
+  { key: "laranja", value: "#FB8C00" },
+  { key: "roxo", value: "#8E24AA" },
+  { key: "rosa", value: "#EC407A" },
+  { key: "marrom", value: "#6D4C41" },
+  { key: "cinza", value: "#9E9E9E" },
+];
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
-const CATEGORIAS = ["Futebol de Botão", "Futebol de Campo", "Futsal", "Society"];
 
 export default function Times() {
-  // form states
-  const [formOpen, setFormOpen] = useState(false);
-  const [editandoId, setEditandoId] = useState(null);
+  const navigate = useNavigate();
 
+  // ---------- Estado: dados ----------
+  const [times, setTimes] = useState([]);
+  const [regioes, setRegioes] = useState([]);
+
+  // ---------- Estado: filtros / ordenação ----------
+  const [ordenacao, setOrdenacao] = useState("alfabetica"); // alfabetica | mais_recente | mais_antigo
+  const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
+
+  // ---------- Estado: formulário time ----------
+  const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
   const [abreviacao, setAbreviacao] = useState("");
   const [categoria, setCategoria] = useState("Futebol de Botão");
   const [escudoUrl, setEscudoUrl] = useState("");
-  const [cor1, setCor1] = useState("#ffffff");
-  const [cor2, setCor2] = useState("#000000");
-  const [corDetalhe, setCorDetalhe] = useState("#000000");
+  const [cor1, setCor1] = useState("#FFFFFF"); // padrão branco
+  const [cor2, setCor2] = useState("#000000"); // padrão preto
+  const [corDetalhe, setCorDetalhe] = useState("#000000"); // padrão preto
+  const [regiaoId, setRegiaoId] = useState(""); // opcional
 
-  // data
-  const [times, setTimes] = useState([]);
-  const [ordem, setOrdem] = useState("alpha"); // alpha | recent | oldest
+  // ---------- Estado: UI ----------
+  const [abrirCadastro, setAbrirCadastro] = useState(false);
+  const [abrirRegioes, setAbrirRegioes] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetchTimes(); }, []);
+  // ---------- Estado: CRUD regiões ----------
+  const [regEditId, setRegEditId] = useState(null);
+  const [regDescricao, setRegDescricao] = useState("");
+
+  // ===== Effects: carregar dados =====
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await Promise.all([fetchTimes(), fetchRegioes()]);
+      setLoading(false);
+    })();
+  }, []);
 
   async function fetchTimes() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("times")
       .select("*")
       .eq("usuario_id", USUARIO_ID)
       .order("nome", { ascending: true });
-    setTimes(data || []);
+    if (!error) setTimes(data || []);
   }
 
+  async function fetchRegioes() {
+    const { data, error } = await supabase
+      .from("regioes")
+      .select("id, descricao")
+      .eq("usuario_id", USUARIO_ID)
+      .order("descricao", { ascending: true });
+    if (!error) setRegioes(data || []);
+  }
+
+  // ===== Helpers UI =====
   function resetForm() {
     setEditandoId(null);
     setNome("");
     setAbreviacao("");
     setCategoria("Futebol de Botão");
     setEscudoUrl("");
-    setCor1("#ffffff");
+    setCor1("#FFFFFF");
     setCor2("#000000");
     setCorDetalhe("#000000");
+    // quando houver filtro de região, usar como default no cadastro:
+    setRegiaoId(regiaoFiltroId || "");
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (corDetalhe.toLowerCase() === cor1.toLowerCase()) {
-      alert("A cor detalhe não pode ser igual à cor 1.");
-      return;
-    }
-    const payload = {
-      usuario_id: USUARIO_ID,
-      nome,
-      abreviacao: abreviacao.toUpperCase(),
-      categoria,
-      escudo_url: escudoUrl || null,
-      cor1, cor2, cor_detalhe: corDetalhe,
-    };
-    if (editandoId) {
-      const { error } = await supabase.from("times").update(payload).eq("id", editandoId);
-      if (error) return alert("❌ Erro ao atualizar time");
-      alert("✅ Time atualizado!");
-    } else {
-      const { error } = await supabase.from("times").insert([payload]);
-      if (error) return alert("❌ Erro ao cadastrar time");
-      alert("✅ Time cadastrado!");
-    }
-    resetForm();
-    await fetchTimes();
-    setFormOpen(false); // fecha após salvar
+  // abre cadastro automaticamente ao editar
+  function handleEdit(time) {
+    setEditandoId(time.id);
+    setNome(time.nome);
+    setAbreviacao(time.abreviacao || "");
+    setCategoria(time.categoria || "Futebol de Botão");
+    setEscudoUrl(time.escudo_url || "");
+    setCor1(time.cor1 || "#FFFFFF");
+    setCor2(time.cor2 || "#000000");
+    setCorDetalhe(time.cor_detalhe || "#000000");
+    setRegiaoId(time.regiao_id || "");
+    setAbrirCadastro(true);
   }
 
   async function handleDelete(id) {
     if (!confirm("Tem certeza que deseja excluir este time?")) return;
     const { error } = await supabase.from("times").delete().eq("id", id);
-    if (!error) setTimes((prev) => prev.filter((t) => t.id !== id));
+    if (error) {
+      alert("❌ Erro ao excluir time.");
+      return;
+    }
+    setTimes((prev) => prev.filter((t) => t.id !== id));
   }
 
-  function handleEdit(t) {
-    setEditandoId(t.id);
-    setNome(t.nome);
-    setAbreviacao(t.abreviacao);
-    setCategoria(t.categoria);
-    setEscudoUrl(t.escudo_url || "");
-    setCor1(t.cor1 || "#ffffff");
-    setCor2(t.cor2 || "#000000");
-    setCorDetalhe(t.cor_detalhe || "#000000");
-    setFormOpen(true); // abre ao editar
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+
+    const payload = {
+      usuario_id: USUARIO_ID,
+      nome,
+      abreviacao,
+      categoria,
+      escudo_url: escudoUrl || null,
+      cor1: cor1 || "#FFFFFF",
+      cor2: cor2 || "#000000",
+      cor_detalhe: corDetalhe || "#000000",
+      regiao_id: regiaoId || null,
+    };
+
+    if (editandoId) {
+      const { error } = await supabase.from("times").update(payload).eq("id", editandoId);
+      if (error) {
+        alert("❌ Erro ao atualizar time.");
+      } else {
+        alert("✅ Time atualizado!");
+        await fetchTimes();
+        resetForm();
+        setAbrirCadastro(false); // colapsa após salvar
+      }
+    } else {
+      const { error } = await supabase.from("times").insert([payload]);
+      if (error) {
+        alert("❌ Erro ao cadastrar time.");
+      } else {
+        alert("✅ Time cadastrado!");
+        await fetchTimes();
+        resetForm();
+        setAbrirCadastro(false); // colapsa após salvar
+      }
+    }
+
+    setSaving(false);
   }
 
-  const timesOrdenados = useMemo(() => {
-    const arr = [...times];
-    if (ordem === "alpha") arr.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-    if (ordem === "recent") arr.sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
-    if (ordem === "oldest") arr.sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em));
+  // ===== CRUD Regiões =====
+  function startNovaRegiao() {
+    setRegEditId(null);
+    setRegDescricao("");
+  }
+  function startEditarRegiao(reg) {
+    setRegEditId(reg.id);
+    setRegDescricao(reg.descricao);
+  }
+
+  async function salvarRegiao(e) {
+    e.preventDefault();
+    if (!regDescricao.trim()) {
+      alert("Informe a descrição da região.");
+      return;
+    }
+    if (regEditId) {
+      const { error } = await supabase
+        .from("regioes")
+        .update({ descricao: regDescricao })
+        .eq("id", regEditId)
+        .eq("usuario_id", USUARIO_ID);
+      if (error) {
+        alert("❌ Erro ao atualizar região.");
+        return;
+      }
+    } else {
+      const { error } = await supabase
+        .from("regioes")
+        .insert([{ usuario_id: USUARIO_ID, descricao: regDescricao }]);
+      if (error) {
+        alert("❌ Erro ao cadastrar região (talvez já exista com esse nome).");
+        return;
+      }
+    }
+    await fetchRegioes();
+    startNovaRegiao();
+  }
+
+  async function excluirRegiao(id) {
+    if (!confirm("Excluir esta região? Times vinculados ficarão sem região.")) return;
+    const { error } = await supabase.from("regioes").delete().eq("id", id).eq("usuario_id", USUARIO_ID);
+    if (error) {
+      alert("❌ Erro ao excluir região.");
+      return;
+    }
+    await fetchRegioes();
+    // se a região excluída estava selecionada no filtro/cadastro, limpamos
+    if (regiaoFiltroId === id) setRegiaoFiltroId("");
+    if (regiaoId === id) setRegiaoId("");
+  }
+
+  // ===== Lista filtrada/ordenada =====
+  const timesFiltrados = useMemo(() => {
+    let arr = [...(times || [])];
+
+    if (regiaoFiltroId) {
+      arr = arr.filter((t) => t.regiao_id === regiaoFiltroId);
+    }
+
+    if (ordenacao === "alfabetica") {
+      arr.sort((a, b) => (a?.nome || "").localeCompare(b?.nome || ""));
+    } else if (ordenacao === "mais_recente") {
+      arr.sort((a, b) => (b?.criado_em || "").localeCompare(a?.criado_em || ""));
+    } else if (ordenacao === "mais_antigo") {
+      arr.sort((a, b) => (a?.criado_em || "").localeCompare(b?.criado_em || ""));
+    }
+
     return arr;
-  }, [times, ordem]);
+  }, [times, ordenacao, regiaoFiltroId]);
 
-  // util p/ sombra dinâmica da sigla
-  const isHexLight = (hex) => {
-    const h = (hex || "#000").replace("#","").padStart(6,"0");
-    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
-    const L = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
-    return L > 0.6;
-  };
-
+  // ===== Render =====
   return (
     <div className="container">
-      <div className="grid">
-        {/* HEADER BOX (título + subtítulo + ordenação) */}
-        <div className="card" style={{ padding: 14 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <h1 style={{ margin: 0 }}>Times</h1>
-              <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-                Crie, edite e gerencie os times da sua competição.
-              </div>
-            </div>
-            <div className="row" style={{ gap: 6 }}>
-              <label className="label" htmlFor="ordem" style={{ margin: 0 }}>Ordenar:</label>
-              <select id="ordem" className="select" value={ordem} onChange={(e) => setOrdem(e.target.value)}>
-                <option value="alpha">Ordem alfabética</option>
-                <option value="recent">Mais recente</option>
-                <option value="oldest">Mais antigo</option>
-              </select>
+      {/* Header da página */}
+      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h1 style={{ margin: 0 }}>Times</h1>
+            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Cadastre, edite e gerencie os times da sua competição.
             </div>
           </div>
+
+          {/* Filtros (ordenar + região) */}
+          <div className="row" style={{ gap: 8 }}>
+            <label className="label" style={{ margin: 0 }}>Ordenar:</label>
+            <select className="select" value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+              <option value="alfabetica">Ordem alfabética</option>
+              <option value="mais_recente">Mais recente</option>
+              <option value="mais_antigo">Mais antigo</option>
+            </select>
+
+            <label className="label" style={{ margin: "0 0 0 8px" }}>Região:</label>
+            <select
+              className="select"
+              value={regiaoFiltroId}
+              onChange={(e) => setRegiaoFiltroId(e.target.value)}
+              style={{ minWidth: 160 }}
+            >
+              <option value="">Todas</option>
+              {regioes.map((r) => (
+                <option key={r.id} value={r.id}>{r.descricao}</option>
+              ))}
+            </select>
+          </div>
         </div>
+      </div>
 
-        {/* FORM COLLAPSADO CONTROLADO */}
-        <CollapsibleSection
-          title={editandoId ? "Editar Time" : "Novo Time"}
-          subtitle="Toque para abrir e cadastrar"
-          open={formOpen}
-          onToggle={setFormOpen}
+      {/* Formulário colapsável de cadastro/edição */}
+      <div className="card collapsible" style={{ marginBottom: 12 }}>
+        <button
+          className="collapsible__header"
+          onClick={() => setAbrirCadastro((v) => !v)}
+          aria-expanded={abrirCadastro}
         >
-          <form onSubmit={handleSubmit} className="grid">
-            <div className="field">
-              <label className="label">Nome do Time</label>
-              <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} required />
+          <div>
+            <div className="collapsible__title">
+              {editandoId ? "Editar Time" : "Cadastrar Time"}
             </div>
+            <div className="collapsible__subtitle">
+              Preencha os dados do time. Região é opcional.
+            </div>
+          </div>
+          <div className={`chevron ${abrirCadastro ? "chevron--up" : ""}`} />
+        </button>
 
+        {abrirCadastro && (
+          <div className="collapsible__body">
+            <form onSubmit={handleSubmit}>
+              <div className="grid grid-2">
+                <div className="field">
+                  <label className="label">Nome do Time</label>
+                  <input
+                    className="input"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="label">Abreviação (SIGLA)</label>
+                  <input
+                    className="input"
+                    value={abreviacao}
+                    onChange={(e) => setAbreviacao(e.target.value.toUpperCase())}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="label">Categoria</label>
+                  <select
+                    className="select"
+                    value={categoria}
+                    onChange={(e) => setCategoria(e.target.value)}
+                  >
+                    <option>Futebol de Botão</option>
+                    <option>Futebol de Campo</option>
+                    <option>Futsal</option>
+                    <option>Society</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label className="label">Escudo (URL)</label>
+                  <input
+                    className="input"
+                    value={escudoUrl}
+                    onChange={(e) => setEscudoUrl(e.target.value)}
+                    placeholder="https://..."
+                  />
+                </div>
+
+                {/* Cores */}
+                <div className="field">
+                  <label className="label">Cor 1</label>
+                  <CompactColorSelector value={cor1} onChange={setCor1} />
+                </div>
+                <div className="field">
+                  <label className="label">Cor 2</label>
+                  <CompactColorSelector value={cor2} onChange={setCor2} />
+                </div>
+                <div className="field">
+                  <label className="label">Cor detalhe</label>
+                  <CompactColorSelector value={corDetalhe} onChange={setCorDetalhe} />
+                </div>
+
+                {/* Região (opcional) + botão + */}
+                <div className="field">
+                  <label className="label">Região (opcional)</label>
+                  <div className="row" style={{ gap: 8 }}>
+                    <select
+                      className="select"
+                      value={regiaoId}
+                      onChange={(e) => setRegiaoId(e.target.value)}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Sem região</option>
+                      {regioes.map((r) => (
+                        <option key={r.id} value={r.id}>{r.descricao}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn--muted"
+                      title="Gerenciar regiões"
+                      onClick={() => {
+                        setAbrirRegioes(true);
+                        startNovaRegiao();
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="row" style={{ gap: 8, marginTop: 12 }}>
+                <button className="btn btn--orange" type="submit" disabled={saving}>
+                  {editandoId ? "Salvar Alterações" : "Salvar Time"}
+                </button>
+                {editandoId && (
+                  <button
+                    className="btn btn--muted"
+                    type="button"
+                    onClick={() => {
+                      resetForm();
+                      setAbrirCadastro(false);
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+
+      {/* Gerenciador de Regiões (frame colapsável) */}
+      {abrirRegioes && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0 }}>Regiões</h3>
+            <button className="btn btn--muted" onClick={() => setAbrirRegioes(false)}>Fechar</button>
+          </div>
+
+          {/* Form de região */}
+          <form onSubmit={salvarRegiao} style={{ marginTop: 10 }}>
             <div className="grid grid-2">
               <div className="field">
-                <label className="label">Abreviação</label>
+                <label className="label">Descrição</label>
                 <input
                   className="input"
-                  value={abreviacao}
-                  onChange={(e) => setAbreviacao(e.target.value.toUpperCase())}
-                  maxLength={5}
-                  required
+                  value={regDescricao}
+                  onChange={(e) => setRegDescricao(e.target.value)}
+                  placeholder="Ex.: Zona Sul, Bairro X..."
                 />
               </div>
               <div className="field">
-                <label className="label">Categoria</label>
-                <select className="select" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label className="label">&nbsp;</label>
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn btn--orange" type="submit">
+                    {regEditId ? "Salvar Região" : "Adicionar Região"}
+                  </button>
+                  {regEditId && (
+                    <button
+                      className="btn btn--muted"
+                      type="button"
+                      onClick={startNovaRegiao}
+                    >
+                      Nova
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <div className="field">
-              <label className="label">Escudo (URL)</label>
-              <input className="input" value={escudoUrl} onChange={(e) => setEscudoUrl(e.target.value)} placeholder="https://..." />
-            </div>
-
-            {/* CORES */}
-            <div className="grid grid-2">
-              <div className="field">
-                <label className="label">Cor 1</label>
-                <ColorPickerCompact value={cor1} onChange={setCor1} />
-              </div>
-              <div className="field">
-                <label className="label">Cor 2</label>
-                <ColorPickerCompact value={cor2} onChange={setCor2} />
-              </div>
-            </div>
-            <div className="field">
-              <label className="label">Cor Detalhe</label>
-              <ColorPickerCompact value={corDetalhe} onChange={setCorDetalhe} />
-            </div>
-
-            <div className="row" style={{ gap: 8, marginTop: 8 }}>
-              <button type="submit" className="btn btn--primary">
-                {editandoId ? "Atualizar Time" : "Salvar Time"}
-              </button>
-              {editandoId && (
-                <button
-                  type="button"
-                  onClick={() => { resetForm(); setFormOpen(false); }}
-                  className="btn btn--muted"
-                >
-                  Cancelar
-                </button>
-              )}
             </div>
           </form>
-        </CollapsibleSection>
 
-        {/* LISTA DE CARDS (auto 2–3 colunas conforme largura) */}
-        <div className="card" style={{ padding: 12 }}>
-          {timesOrdenados.length === 0 ? (
-            <p style={{ margin: 8 }}>Nenhum time cadastrado ainda.</p>
-          ) : (
-            <ul className="grid grid-2" style={{ gap: 12, padding: 0, listStyle: "none" }}>
-              {timesOrdenados.map((time) => {
-                const c1 = time.cor1 || "#ffffff";
-                const c2 = time.cor2 || "#000000";
-                const cd = time.cor_detalhe || "#000000";
-                const sigla = (time.abreviacao || "").toUpperCase();
+          {/* Lista de regiões */}
+          <ul className="list" style={{ marginTop: 10 }}>
+            {regioes.length === 0 ? (
+              <li className="list__item">
+                <div className="text-muted">Nenhuma região cadastrada ainda.</div>
+              </li>
+            ) : (
+              regioes.map((r) => (
+                <li key={r.id} className="list__item">
+                  <div className="list__left">
+                    <div className="list__title">{r.descricao}</div>
+                  </div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn btn--orange" onClick={() => startEditarRegiao(r)}>
+                      Editar
+                    </button>
+                    <button className="btn btn--red" onClick={() => excluirRegiao(r.id)}>
+                      Excluir
+                    </button>
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
 
-                const siglaShadow = isHexLight(cd)
-                  ? "0 1px 2px rgba(0,0,0,.65), 0 0 2px rgba(0,0,0,.85)"
-                  : "0 1px 2px rgba(255,255,255,.65), 0 0 2px rgba(255,255,255,.95)";
+      {/* Lista de times (cards detalhados) */}
+      <div className="grid grid-3">
+        {loading ? (
+          <div className="card" style={{ padding: 14 }}>Carregando…</div>
+        ) : timesFiltrados.length === 0 ? (
+          <div className="card" style={{ padding: 14 }}>
+            Nenhum time encontrado {regiaoFiltroId ? "para a região selecionada." : "ainda."}
+          </div>
+        ) : (
+          timesFiltrados.map((time) => (
+            <TeamCard
+              key={time.id}
+              time={time}
+              onEdit={() => handleEdit(time)}
+              onDelete={() => handleDelete(time.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
-                return (
-                  <li key={time.id} className="team-card card" style={{ padding: 0 }}>
-                    {/* Banner com diagonal */}
-                    <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2, "--cd": cd }} />
+/* ====== Componentes auxiliares ====== */
 
-                    {/* Badge (sigla/escudo) sobreposto */}
-                    <div className="team-card__badge" style={{ "--c1": c1, "--c2": c2, "--cd": cd }}>
-                      {time.escudo_url ? (
-                        <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
-                      ) : (
-                        <div className="team-card__sigla" style={{ color: cd, textShadow: siglaShadow }}>
-                          {sigla}
-                        </div>
-                      )}
-                    </div>
+// Seletor de cor compacto (bolinhas)
+function CompactColorSelector({ value, onChange }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+      {COLOR_OPTIONS.map((c) => {
+        const selected = value?.toLowerCase() === c.value.toLowerCase();
+        return (
+          <button
+            key={c.key}
+            type="button"
+            title={c.key}
+            onClick={() => onChange(c.value)}
+            style={{
+              width: 22, height: 22, borderRadius: 999,
+              border: selected ? "3px solid #FB8C00" : "2px solid rgba(0,0,0,.15)",
+              background: c.value,
+              boxShadow: selected ? "0 0 0 3px rgba(251,140,0,.15)" : "none",
+              cursor: "pointer"
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
-                    {/* Nome + paleta alinhados com o badge */}
-                    <div className="team-card__info team-card__info--with-badge">
-                      <div style={{ minWidth: 0 }}>
-                        <div className="team-card__title">{time.nome}</div>
-                        <div className="team-card__subtitle">{time.categoria}</div>
-                      </div>
-                      <div className="team-card__dots" aria-label="Paleta do time">
-                        <span className="team-card__dot" style={{ background: c1 }} />
-                        <span className="team-card__dot" style={{ background: c2 }} />
-                        <span className="team-card__dot" style={{ background: cd }} />
-                      </div>
-                    </div>
+// Card do time (versão refinada com “badge”/sigla) + contraste dinâmico
+function TeamCard({ time, onEdit, onDelete }) {
+  const c1 = time.cor1 || "#FFFFFF";
+  const c2 = time.cor2 || "#000000";
+  const cd = time.cor_detalhe || "#000000";
 
-                    {/* AÇÕES: 1ª linha (ver...), 2ª linha (editar/excluir) */}
-                    <div className="team-card__actions">
-                      <div className="team-card__actions-row">
-                        <Link
-                          to={`/jogadores?time=${time.id}&name=${encodeURIComponent(time.nome)}`}
-                          className="btn btn--orange"
-                        >
-                          Ver jogadores
-                        </Link>
-                        <Link
-                          to={`/campeonatos?time=${time.id}&name=${encodeURIComponent(time.nome)}`}
-                          className="btn btn--orange"
-                        >
-                          Ver campeonatos
-                        </Link>
-                      </div>
-                      <div className="team-card__actions-row">
-                        <button onClick={() => handleEdit(time)} className="btn btn--orange">
-                          Editar
-                        </button>
-                        <button onClick={() => handleDelete(time.id)} className="btn btn--red">
-                          Excluir
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+  // Calcula luminância média do fundo (c1/c2) para decidir a sombra da sigla
+  const textShadowForBadge = (() => {
+    const rgb1 = hexToRgb(c1);
+    const rgb2 = hexToRgb(c2);
+    const avgLum = (luminance(rgb1) + luminance(rgb2)) / 2;
+    // Fundo claro => sombra escura; fundo escuro => halo branco
+    return avgLum > 0.5
+      ? "0 1px 2px rgba(0,0,0,.85), 0 0 1px rgba(0,0,0,.6)"
+      : "0 1px 2px rgba(255,255,255,.9), 0 0 1px rgba(255,255,255,.85)";
+  })();
+
+  return (
+    <div className="card team-card">
+      {/* Banner com diagonal */}
+      <div
+        className="team-card__banner"
+        style={{ ["--c1"]: c1, ["--c2"]: c2 }}
+      />
+
+      {/* Badge com sigla (borda = cor detalhe / fundo diagonal) */}
+      <div
+        className="team-card__badge"
+        style={{
+          ["--cd"]: cd,
+          background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)`,
+        }}
+      >
+        {time.escudo_url ? (
+          <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
+        ) : (
+          <span
+            className="team-card__sigla"
+            style={{
+              color: cd,
+              textShadow: textShadowForBadge, // <<< contraste dinâmico
+            }}
+          >
+            {(time.abreviacao || "?").toUpperCase()}
+          </span>
+        )}
+      </div>
+
+      {/* Info alinhada à esquerda logo abaixo do badge */}
+      <div className="team-card__info team-card__info--with-badge">
+        <div>
+          <div className="team-card__title">{time.nome}</div>
+          <div className="team-card__subtitle">{time.categoria || "—"}</div>
+        </div>
+
+        {/* paleta compacta à direita */}
+        <div className="team-card__dots">
+          <span className="team-card__dot" style={{ background: c1 }} />
+          <span className="team-card__dot" style={{ background: c2 }} />
+          <span className="team-card__dot" style={{ background: cd }} />
+        </div>
+      </div>
+
+      {/* Ações (2 linhas) */}
+      <div className="team-card__actions">
+        <div className="team-card__actions-row">
+          <Link to={`/jogadores?time=${time.id}`} className="btn btn--orange">Ver jogadores</Link>
+          <Link to={`/campeonatos`} className="btn btn--muted">Ver campeonatos</Link>
+        </div>
+        <div className="team-card__actions-row">
+          <button className="btn btn--orange" onClick={onEdit}>Editar</button>
+          <button className="btn btn--red" onClick={onDelete}>Excluir</button>
         </div>
       </div>
     </div>
