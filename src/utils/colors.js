@@ -22,3 +22,12 @@ export function luminance([r, g, b]) {
   });
   return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
 }
+
+export function getContrastShadow(hex) {
+  const rgb = hexToRgb(hex);
+  const lum = luminance(rgb);
+  const isLight = lum > 0.5; // texto claro → sombra escura; texto escuro → sombra clara
+  return isLight
+    ? "0 1px 2px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.7)"
+    : "0 1px 2px rgba(255,255,255,.95), 0 0 1px rgba(255,255,255,.85)";
+}
