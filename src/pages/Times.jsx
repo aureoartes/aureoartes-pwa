@@ -1,25 +1,9 @@
-// src/pages/Times.jsx (corrigido com seção de cadastro)
+// src/pages/Times.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import { getContrastShadow } from "../utils/colors";
-
-const COLOR_OPTIONS = [
-  { key: "branco", value: "#FFFFFF" },
-  { key: "preto", value: "#000000" },
-  { key: "vermelho", value: "#E53935" },
-  { key: "verde", value: "#43A047" },
-  { key: "verde-escuro", value: "#1B5E20" },
-  { key: "azul", value: "#1E88E5" },
-  { key: "azul-escuro", value: "#0D47A1" },
-  { key: "grena", value: "#7B1E3C" },
-  { key: "amarelo", value: "#FBC02D" },
-  { key: "laranja", value: "#FB8C00" },
-  { key: "roxo", value: "#8E24AA" },
-  { key: "rosa", value: "#EC407A" },
-  { key: "marrom", value: "#6D4C41" },
-  { key: "cinza", value: "#9E9E9E" },
-];
+import ColorSwatchSelect, { COLOR_OPTIONS } from "../components/ColorSwatchSelect";
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
 
@@ -29,6 +13,8 @@ export default function Times() {
   const [ordenacao, setOrdenacao] = useState("alfabetica");
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
 
+  // cadastro/edição
+  const [abrirCadastro, setAbrirCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
   const [abreviacao, setAbreviacao] = useState("");
@@ -39,7 +25,6 @@ export default function Times() {
   const [corDetalhe, setCorDetalhe] = useState("#000000");
   const [regiaoId, setRegiaoId] = useState("");
 
-  const [abrirCadastro, setAbrirCadastro] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -83,7 +68,7 @@ export default function Times() {
 
   function handleEdit(time) {
     setEditandoId(time.id);
-    setNome(time.nome);
+    setNome(time.nome || "");
     setAbreviacao(time.abreviacao || "");
     setCategoria(time.categoria || "Futebol de Botão");
     setEscudoUrl(time.escudo_url || "");
@@ -160,7 +145,9 @@ export default function Times() {
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ margin: 0 }}>Times</h1>
-            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>Cadastre, edite e gerencie os times da sua competição.</div>
+            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Cadastre, edite e gerencie os times da sua competição.
+            </div>
           </div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <label className="label" style={{ margin: 0 }}>Ordenar:</label>
@@ -170,11 +157,23 @@ export default function Times() {
               <option value="mais_antigo">Mais antigo</option>
             </select>
             <label className="label" style={{ margin: "0 0 0 8px" }}>Região:</label>
-            <select className="select" value={regiaoFiltroId} onChange={(e) => setRegiaoFiltroId(e.target.value)} style={{ minWidth: 160 }}>
+            <select
+              className="select"
+              value={regiaoFiltroId}
+              onChange={(e) => setRegiaoFiltroId(e.target.value)}
+              style={{ minWidth: 160 }}
+            >
               <option value="">Todas</option>
-              {regioes.map((r) => (<option key={r.id} value={r.id}>{r.descricao}</option>))}
+              {regioes.map((r) => (
+                <option key={r.id} value={r.id}>{r.descricao}</option>
+              ))}
             </select>
-            <button className="btn btn--orange" onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}>+ Novo Time</button>
+            <button
+              className="btn btn--orange"
+              onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            >
+              + Novo Time
+            </button>
           </div>
         </div>
       </div>
@@ -184,8 +183,11 @@ export default function Times() {
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
-            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>Fechar</button>
+            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
+              Fechar
+            </button>
           </div>
+
           <div style={{ padding: 12 }}>
             <form onSubmit={handleSubmit}>
               <div className="grid grid-2">
@@ -193,14 +195,17 @@ export default function Times() {
                   <label className="label">Nome</label>
                   <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} required />
                 </div>
+
                 <div className="field">
                   <label className="label">Abreviação (sigla)</label>
                   <input className="input" value={abreviacao} onChange={(e) => setAbreviacao(e.target.value)} placeholder="Ex.: ABC" />
                 </div>
+
                 <div className="field">
                   <label className="label">Categoria</label>
-                  <input className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
+                  <input className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="Ex.: Futebol de Botão" />
                 </div>
+
                 <div className="field">
                   <label className="label">Região</label>
                   <select className="select" value={regiaoId} onChange={(e) => setRegiaoId(e.target.value)}>
@@ -210,32 +215,24 @@ export default function Times() {
                     ))}
                   </select>
                 </div>
+
                 <div className="field">
-                  <label className="label">Escudo (URL)</label>
+                  <label className="label">Escudo (URL) (opcional)</label>
                   <input className="input" value={escudoUrl} onChange={(e) => setEscudoUrl(e.target.value)} placeholder="https://..." />
                 </div>
-                <div className="field">
-                  <label className="label">Cor Detalhe</label>
-                  <select className="select" value={corDetalhe} onChange={(e) => setCorDetalhe(e.target.value)}>
-                    {COLOR_OPTIONS.map(opt => (<option key={opt.key} value={opt.value}>{opt.key}</option>))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label className="label">Cor 1</label>
-                  <select className="select" value={cor1} onChange={(e) => setCor1(e.target.value)}>
-                    {COLOR_OPTIONS.map(opt => (<option key={opt.key} value={opt.value}>{opt.key}</option>))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label className="label">Cor 2</label>
-                  <select className="select" value={cor2} onChange={(e) => setCor2(e.target.value)}>
-                    {COLOR_OPTIONS.map(opt => (<option key={opt.key} value={opt.value}>{opt.key}</option>))}
-                  </select>
-                </div>
+
+                <ColorSwatchSelect label="Cor Detalhe (sigla/borda)" value={corDetalhe} onChange={setCorDetalhe} />
+                <ColorSwatchSelect label="Cor 1" value={cor1} onChange={setCor1} />
+                <ColorSwatchSelect label="Cor 2" value={cor2} onChange={setCor2} />
               </div>
+
               <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn btn--orange" type="submit" disabled={saving}>{editandoId ? "Salvar Alterações" : "Salvar Time"}</button>
-                <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>Cancelar</button>
+                <button className="btn btn--orange" type="submit" disabled={saving}>
+                  {editandoId ? "Salvar Alterações" : "Salvar Time"}
+                </button>
+                <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
+                  Cancelar
+                </button>
               </div>
             </form>
           </div>
@@ -250,7 +247,12 @@ export default function Times() {
           <div className="card" style={{ padding: 14 }}>Nenhum time encontrado.</div>
         ) : (
           timesFiltrados.map((time) => (
-            <TeamCard key={time.id} time={time} onEdit={() => handleEdit(time)} onDelete={() => handleDelete(time.id)} />
+            <TeamCard
+              key={time.id}
+              time={time}
+              onEdit={() => handleEdit(time)}
+              onDelete={() => handleDelete(time.id)}
+            />
           ))
         )}
       </div>

@@ -1,12 +1,111 @@
 // src/pages/Jogadores.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import ListaCompactaItem from "../components/ListaCompactaItem";
+import TeamIcon from "../components/TeamIcon";
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+const SEM_EQUIPE = "__none__";
+
+/* Hook para detectar viewport estreita (mobile vertical) */
+function useIsNarrow(maxWidth = 520) {
+  const [narrow, setNarrow] = useState(
+    typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${maxWidth}px)`);
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener?.("change", onChange);
+    mq.addListener?.(onChange);
+    return () => {
+      mq.removeEventListener?.("change", onChange);
+      mq.removeListener?.(onChange);
+    };
+  }, [maxWidth]);
+  return narrow;
+}
+
+/* Menu compacto (mobile) com click-fora/ESC e flip pra cima quando faltar espaço */
+function MenuAcoesNarrow({ onEditar, onExcluir }) {
+  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  let openUp = false;
+  let topStyle = "calc(100% + 6px)";
+  if (typeof window !== "undefined" && btnRef.current) {
+    const rect = btnRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const menuHeight = 56; // ~2 botões
+    if (spaceBelow < menuHeight) {
+      openUp = true;
+      topStyle = "auto";
+    }
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        ref={btnRef}
+        type="button"
+        className="btn btn--sm btn--muted btn--icon"
+        aria-label="Mais ações"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title="mais ações"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="card"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: openUp ? "auto" : topStyle,
+            bottom: openUp ? "calc(100% + 6px)" : "auto",
+            padding: 8,
+            zIndex: 20,
+            minWidth: 160,
+          }}
+        >
+          <div className="row" style={{ gap: 6 }}>
+            <button role="menuitem" className="btn btn--sm btn--orange" onClick={() => { setOpen(false); onEditar(); }}>
+              Editar
+            </button>
+            <button role="menuitem" className="btn btn--sm btn--red" onClick={() => { setOpen(false); onExcluir(); }}>
+              Excluir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Jogadores() {
+  const isNarrow = useIsNarrow(520);
   const location = useLocation();
   const urlParams = new URLSearchParams(location.search);
   const timeParam = urlParams.get("time") || "";
@@ -16,22 +115,23 @@ export default function Jogadores() {
   const [times, setTimes] = useState([]);
   const [timesById, setTimesById] = useState({});
 
-  // Filtros
+  // Filtros e ordenação
   const [timeFiltroId, setTimeFiltroId] = useState(timeParam);
+  const [ordenacao, setOrdenacao] = useState("nome"); // nome | apelido | clube | numero | posicao
 
-  // Form (cadastro/edição)
-  const [abrirCadastro, setAbrirCadastro] = useState(false); // oculto por padrão
+  // Form cadastro/edição
+  const [abrirCadastro, setAbrirCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
+  const [timeId, setTimeId] = useState(timeParam || "");
   const [nome, setNome] = useState("");
   const [apelido, setApelido] = useState("");
   const [numero, setNumero] = useState("");
   const [posicao, setPosicao] = useState("");
   const [fotoUrl, setFotoUrl] = useState("");
-  const [timeId, setTimeId] = useState(timeParam || "");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Carrega dados iniciais
+  // Inicial
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -41,7 +141,7 @@ export default function Jogadores() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Se o filtro de time mudar, recarrega jogadores
+  // Recarrega lista no filtro por time
   useEffect(() => {
     fetchJogadores();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,6 +153,7 @@ export default function Jogadores() {
       .select("*")
       .eq("usuario_id", USUARIO_ID)
       .order("nome", { ascending: true });
+
     const arr = data || [];
     setTimes(arr);
     const map = {};
@@ -61,26 +162,24 @@ export default function Jogadores() {
   }
 
   async function fetchJogadores() {
-    let query = supabase
-      .from("jogadores")
-      .select("*")
-      .eq("usuario_id", USUARIO_ID)
-      .order("nome", { ascending: true });
-
-    if (timeFiltroId) query = query.eq("time_id", timeFiltroId);
-
-    const { data } = await query;
+    let query = supabase.from("jogadores").select("*").eq("usuario_id", USUARIO_ID);
+    if (timeFiltroId === SEM_EQUIPE) {
+      query = query.is("time_id", null);
+    } else if (timeFiltroId) {
+      query = query.eq("time_id", timeFiltroId);
+    }
+    const { data } = await query.order("nome", { ascending: true });
     setJogadores(data || []);
   }
 
   function resetForm() {
     setEditandoId(null);
+    setTimeId(timeFiltroId && timeFiltroId !== SEM_EQUIPE ? timeFiltroId : "");
     setNome("");
     setApelido("");
     setNumero("");
     setPosicao("");
     setFotoUrl("");
-    setTimeId(timeFiltroId || ""); // se há filtro, usa como default
   }
 
   function startNovo() {
@@ -91,12 +190,12 @@ export default function Jogadores() {
 
   function startEditar(j) {
     setEditandoId(j.id);
+    setTimeId(j.time_id || "");
     setNome(j.nome || "");
     setApelido(j.apelido || "");
     setNumero(j.numero ?? "");
     setPosicao(j.posicao || "");
     setFotoUrl(j.foto_url || "");
-    setTimeId(j.time_id || "");
     setAbrirCadastro(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -113,18 +212,15 @@ export default function Jogadores() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!timeId) {
-      alert("Selecione um time para o jogador.");
-      return;
-    }
     setSaving(true);
+
     const payload = {
       usuario_id: USUARIO_ID,
-      time_id: timeId,
+      time_id: timeId || null,         // permite sem equipe
       nome,
       apelido: apelido || null,
       numero: numero === "" ? null : Number(numero),
-      posicao: posicao || null,
+      posicao: posicao || null,        // pode ficar em branco
       foto_url: fotoUrl || null,
     };
 
@@ -135,7 +231,7 @@ export default function Jogadores() {
         alert("✅ Jogador atualizado!");
         await fetchJogadores();
         resetForm();
-        setAbrirCadastro(false); // fecha após salvar
+        setAbrirCadastro(false);
       }
     } else {
       const { error } = await supabase.from("jogadores").insert([payload]);
@@ -144,27 +240,39 @@ export default function Jogadores() {
         alert("✅ Jogador cadastrado!");
         await fetchJogadores();
         resetForm();
-        setAbrirCadastro(false); // fecha após salvar
+        setAbrirCadastro(false);
       }
     }
 
     setSaving(false);
   }
 
-  const jogadoresFiltrados = useMemo(() => {
-    // (já vem filtrado pelo fetch; deixamos aqui caso queira outro filtro futuro)
-    return jogadores || [];
-  }, [jogadores]);
+  // Ordenação local (após buscar)
+  const jogadoresOrdenados = useMemo(() => {
+    const arr = [...(jogadores || [])];
+    const byStr = (a, b) => (a || "").localeCompare(b || "", undefined, { sensitivity: "base" });
+    const byNum = (a, b) => (a ?? Infinity) - (b ?? Infinity);
+
+    switch (ordenacao) {
+      case "apelido": arr.sort((a, b) => byStr(a.apelido, b.apelido)); break;
+      case "clube":   arr.sort((a, b) => byStr(timesById[a.time_id]?.nome, timesById[b.time_id]?.nome)); break;
+      case "numero":  arr.sort((a, b) => byNum(a.numero, b.numero)); break;
+      case "posicao": arr.sort((a, b) => byStr(a.posicao, b.posicao)); break;
+      case "nome":
+      default:        arr.sort((a, b) => byStr(a.nome, b.nome));
+    }
+    return arr;
+  }, [jogadores, ordenacao, timesById]);
 
   return (
     <div className="container">
-      {/* Header */}
+      {/* Header/Filtros */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ margin: 0 }}>Jogadores</h1>
             <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Cadastre, edite e gerencie jogadores. Use o filtro para focar em um time.
+              Cadastre, edite e gerencie jogadores. Use os filtros para focar em um time.
             </div>
           </div>
 
@@ -177,9 +285,24 @@ export default function Jogadores() {
               style={{ minWidth: 200 }}
             >
               <option value="">Todos</option>
+              <option value={SEM_EQUIPE}>Sem equipe</option>
               {times.map((t) => (
                 <option key={t.id} value={t.id}>{t.nome}</option>
               ))}
+            </select>
+
+            <label className="label" style={{ marginLeft: 8 }}>Ordenar por:</label>
+            <select
+              className="select"
+              value={ordenacao}
+              onChange={(e) => setOrdenacao(e.target.value)}
+              style={{ minWidth: 160 }}
+            >
+              <option value="nome">Nome</option>
+              <option value="apelido">Apelido</option>
+              <option value="clube">Clube</option>
+              <option value="numero">Número</option>
+              <option value="posicao">Posição</option>
             </select>
 
             <button className="btn btn--orange" onClick={startNovo}>
@@ -189,7 +312,7 @@ export default function Jogadores() {
         </div>
       </div>
 
-      {/* Cadastro (oculto por padrão) */}
+      {/* Cadastro (oculto) */}
       {abrirCadastro && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
@@ -203,14 +326,9 @@ export default function Jogadores() {
             <form onSubmit={handleSubmit}>
               <div className="grid grid-2">
                 <div className="field">
-                  <label className="label">Time</label>
-                  <select
-                    className="select"
-                    value={timeId}
-                    onChange={(e) => setTimeId(e.target.value)}
-                    required
-                  >
-                    <option value="">Selecione…</option>
+                  <label className="label">Time (opcional)</label>
+                  <select className="select" value={timeId} onChange={(e) => setTimeId(e.target.value)}>
+                    <option value="">Sem equipe</option>
                     {times.map((t) => (
                       <option key={t.id} value={t.id}>{t.nome}</option>
                     ))}
@@ -240,7 +358,19 @@ export default function Jogadores() {
 
                 <div className="field">
                   <label className="label">Posição (opcional)</label>
-                  <input className="input" value={posicao} onChange={(e) => setPosicao(e.target.value)} placeholder="Ex.: Atacante" />
+                  <input
+                    className="input"
+                    value={posicao}
+                    onChange={(e) => setPosicao(e.target.value)}
+                    list="posicoes-sugeridas"
+                    placeholder="Ex.: DEF (ou deixe em branco)"
+                  />
+                  <datalist id="posicoes-sugeridas">
+                    <option value="GOL" />
+                    <option value="DEF" />
+                    <option value="MEI" />
+                    <option value="ATA" />
+                  </datalist>
                 </div>
 
                 <div className="field">
@@ -265,42 +395,43 @@ export default function Jogadores() {
       {/* Lista compacta */}
       {loading ? (
         <div className="card" style={{ padding: 14 }}>Carregando…</div>
-      ) : jogadoresFiltrados.length === 0 ? (
+      ) : jogadoresOrdenados.length === 0 ? (
         <div className="card" style={{ padding: 14 }}>
-          Nenhum jogador encontrado{timeFiltroId ? " para o time selecionado." : "."}
+          Nenhum jogador encontrado
+          {timeFiltroId === SEM_EQUIPE ? " (sem equipe)." : timeFiltroId ? " para o time selecionado." : "."}
         </div>
       ) : (
         <ul className="list card">
-          {jogadoresFiltrados.map((j) => {
+          {jogadoresOrdenados.map((j) => {
             const t = timesById[j.time_id];
-            const c1 = t?.cor1 || "#FFFFFF";
-            const c2 = t?.cor2 || "#000000";
-            const cd = t?.cor_detalhe || "#000000";
-
             const titulo = j.apelido?.trim() ? j.apelido : j.nome;
-            const subtitulo = [j.nome, (j.numero || j.numero === 0) && `#${j.numero}`, j.posicao, t?.nome]
-              .filter(Boolean)
-              .join(" — ");
+
+            const partes = [];
+            if (j.nome) partes.push(j.nome);
+            if (j.numero || j.numero === 0) partes.push(`#${j.numero}`);
+            if (j.posicao) partes.push(j.posicao);
+            if (t?.nome) partes.push(t.nome);
+            const subtitulo = partes.join(" — ");
 
             const icone = (
-              <span
-                aria-hidden
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: "50%",
-                  display: "inline-block",
-                  background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)`,
-                  border: `2px solid ${cd}`
-                }}
+              <TeamIcon
+                team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
+                size={24}
               />
             );
 
-            const acoes = (
+            const acoesWide = (
               <>
                 <button onClick={() => startEditar(j)} className="btn btn--sm btn--orange">Editar</button>
                 <button onClick={() => handleDelete(j.id)} className="btn btn--sm btn--red">Excluir</button>
               </>
+            );
+
+            const acoesNarrow = (
+              <MenuAcoesNarrow
+                onEditar={() => startEditar(j)}
+                onExcluir={() => handleDelete(j.id)}
+              />
             );
 
             return (
@@ -309,7 +440,7 @@ export default function Jogadores() {
                 icone={icone}
                 titulo={titulo}
                 subtitulo={subtitulo}
-                acoes={acoes}
+                acoes={isNarrow ? acoesNarrow : acoesWide}
               />
             );
           })}

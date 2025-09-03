@@ -1,5 +1,5 @@
-// src/pages/TimeDetalhes.jsx (versão refinada com btn--sm)
-import { useEffect, useMemo, useState } from "react";
+// src/pages/TimeDetalhes.jsx (v1.0.1 — completo)
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import { getContrastShadow } from "../utils/colors";
@@ -7,6 +7,24 @@ import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 
 const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+
+// Hook de responsividade para mobile vertical
+function useIsNarrow(maxWidth = 520) {
+  const [narrow, setNarrow] = useState(
+    typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${maxWidth}px)`);
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener?.("change", onChange);
+    mq.addListener?.(onChange);
+    return () => {
+      mq.removeEventListener?.("change", onChange);
+      mq.removeListener?.(onChange);
+    };
+  }, [maxWidth]);
+  return narrow;
+}
 
 export default function TimeDetalhes() {
   const navigate = useNavigate();
@@ -125,19 +143,12 @@ export default function TimeDetalhes() {
       </div>
 
       <div className="card team-card">
-        <div
-          className="team-card__banner"
-          style={{ "--c1": c1, "--c2": c2 }}
-        />
-        <div
-          className="team-card__badge"
-          style={{ "--cd": cd, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}
-        >
+        <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
+        <div className="team-card__badge" style={{ "--cd": cd, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}>
           {time.escudo_url ? (
             <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
           ) : (
             <span className="team-card__sigla" style={{ color: cd, textShadow: getContrastShadow(cd) }}>
-            
               {(time.abreviacao || "?").toUpperCase()}
             </span>
           )}
@@ -156,7 +167,8 @@ export default function TimeDetalhes() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 12 }}>
+      {/* Card das abas */}
+      <div className="card" style={{ padding: 0, overflow: "visible", marginTop: 12 }}>
         <div role="tablist" style={{ display: "flex", borderBottom: "1px solid var(--line)", background: "#fffdfa" }}>
           <TabButton active={tab === "estatisticas"} onClick={() => setTab("estatisticas")}>Estatísticas</TabButton>
           <TabButton active={tab === "campeonatos"} onClick={() => setTab("campeonatos")}>Campeonatos</TabButton>
@@ -164,8 +176,20 @@ export default function TimeDetalhes() {
         </div>
 
         <div style={{ padding: 14 }}>
-          {tab === "estatisticas" && <EstatisticasBlock stats={stats} totalCampeonatos={campeonatos?.length || 0} totalJogadores={jogadores?.length || 0} />}
-          {tab === "campeonatos" && <CampeonatosBlock campeonatos={campeonatos} partidas={partidas} classificacao={classificacao} />}
+          {tab === "estatisticas" && (
+            <EstatisticasBlock
+              stats={stats}
+              totalCampeonatos={campeonatos?.length || 0}
+              totalJogadores={jogadores?.length || 0}
+            />
+          )}
+          {tab === "campeonatos" && (
+            <CampeonatosBlock
+              campeonatos={campeonatos}
+              partidas={partidas}
+              classificacao={classificacao}
+            />
+          )}
           {tab === "jogadores" && <JogadoresBlock jogadores={jogadores} time={time} />}
         </div>
       </div>
@@ -173,28 +197,27 @@ export default function TimeDetalhes() {
   );
 }
 
-function useIsNarrow(maxWidth = 480) {
-  const [narrow, setNarrow] = useState(
-    typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width:${maxWidth}px)`);
-    const onChange = e => setNarrow(e.matches);
-    mq.addEventListener?.("change", onChange);
-    // Safari antigo
-    mq.addListener?.(onChange);
-    return () => {
-      mq.removeEventListener?.("change", onChange);
-      mq.removeListener?.(onChange);
-    };
-  }, [maxWidth]);
-  return narrow;
-}
-
 function TabButton({ active, onClick, children }) {
   return (
-    <button type="button" role="tab" aria-selected={active} onClick={onClick}
-      style={{ flex: 1, border: 0, padding: "12px 14px", cursor: "pointer", fontWeight: 900, letterSpacing: ".3px", background: active ? "#fff3e6" : "transparent", color: active ? "#a65300" : "var(--muted)", borderBottom: active ? "3px solid var(--brand-600)" : "3px solid transparent" }}>{children}</button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        border: 0,
+        padding: "12px 14px",
+        cursor: "pointer",
+        fontWeight: 900,
+        letterSpacing: ".3px",
+        background: active ? "#fff3e6" : "transparent",
+        color: active ? "#a65300" : "var(--muted)",
+        borderBottom: active ? "3px solid var(--brand-600)" : "3px solid transparent",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -210,15 +233,22 @@ function EstatisticasBlock({ stats, totalCampeonatos, totalJogadores }) {
     { k: "Campeonatos", v: totalCampeonatos },
     { k: "Jogadores", v: totalJogadores },
   ];
-  return <div className="grid grid-3">{items.map((it) => (<div key={it.k} className="card" style={{ padding: 12 }}><div className="text-muted" style={{ fontSize: 12 }}>{it.k}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{it.v}</div></div>))}</div>;
+  return (
+    <div className="grid grid-3">
+      {items.map((it) => (
+        <div key={it.k} className="card" style={{ padding: 12 }}>
+          <div className="text-muted" style={{ fontSize: 12 }}>{it.k}</div>
+          <div style={{ fontSize: 24, fontWeight: 700 }}>{it.v}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
-  const isNarrow = useIsNarrow(520); // ajuste fino pra mobile vertical
+  const isNarrow = useIsNarrow(520);
   const [openMenuId, setOpenMenuId] = useState(null);
-
   const guard = (enabled) => (e) => { if (!enabled) e.preventDefault(); };
-  const toggleMenu = (id) => setOpenMenuId(prev => (prev === id ? null : id));
 
   const header = (
     <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -248,10 +278,9 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
           const subtitulo = [
             c.categoria || "—",
             c.formato || "—",
-            c.numero_equipes ? `${c.numero_equipes} equipes` : null
+            c.numero_equipes ? `${c.numero_equipes} equipes` : null,
           ].filter(Boolean).join(" • ");
 
-          // Ações para telas largas (desktop/tablet)
           const acoesWide = (
             <>
               <Link
@@ -259,67 +288,24 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
                 to={`/campeonatos/${c.id}/partidas`}
                 aria-disabled={!temPartidas}
                 onClick={guard(temPartidas)}
-              >
-                Ver partidas
-              </Link>
+              >Ver partidas</Link>
               <Link
                 className="btn btn--sm btn--muted"
                 to={`/campeonatos/${c.id}/tabela`}
                 aria-disabled={!temClassificacao}
                 onClick={guard(temClassificacao)}
-              >
-                Ver tabela
-              </Link>
+              >Ver tabela</Link>
             </>
           );
 
-          // Ações para mobile (um botão "menu" compacto)
           const acoesNarrow = (
-            <div style={{ position: "relative" }}>
-              <button
-                type="button"
-                className="btn btn--sm btn--muted"
-                aria-label="Mais ações"
-                onClick={() => toggleMenu(c.id)}
-                title="Mais ações"
-              >
-                {/* ícone simples de menu (hambúrguer) */}
-                <span aria-hidden style={{ fontWeight: 900 }}>≡</span>
-              </button>
-
-              {openMenuId === c.id && (
-                <div
-                  className="card"
-                  style={{
-                    position: "absolute",
-                    right: 0,
-                    top: "calc(100% + 6px)",
-                    padding: 8,
-                    zIndex: 10,
-                    minWidth: 160
-                  }}
-                >
-                  <div className="row" style={{ gap: 6 }}>
-                    <Link
-                      className="btn btn--sm btn--orange"
-                      to={`/campeonatos/${c.id}/partidas`}
-                      aria-disabled={!temPartidas}
-                      onClick={(e)=>{ guard(temPartidas)(e); if(temPartidas) setOpenMenuId(null); }}
-                    >
-                      Ver partidas
-                    </Link>
-                    <Link
-                      className="btn btn--sm btn--muted"
-                      to={`/campeonatos/${c.id}/tabela`}
-                      aria-disabled={!temClassificacao}
-                      onClick={(e)=>{ guard(temClassificacao)(e); if(temClassificacao) setOpenMenuId(null); }}
-                    >
-                      Ver tabela
-                    </Link>
-                  </div>
-                </div>
-              )}
-            </div>
+            <MenuAcoesNarrow
+              id={c.id}
+              openMenuId={openMenuId}
+              setOpenMenuId={setOpenMenuId}
+              temPartidas={temPartidas}
+              temClassificacao={temClassificacao}
+            />
           );
 
           return (
@@ -337,12 +323,99 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
   );
 }
 
+function MenuAcoesNarrow({ id, openMenuId, setOpenMenuId, temPartidas, temClassificacao }) {
+  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const isOpen = openMenuId === id;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function onDocClick(e) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) setOpenMenuId(null);
+    }
+    function onKey(e) { if (e.key === "Escape") setOpenMenuId(null); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [isOpen, setOpenMenuId]);
+
+  // Abre pra cima se faltar espaço
+  let openUp = false;
+  let topStyle = "calc(100% + 6px)";
+  if (typeof window !== "undefined" && btnRef.current) {
+    const rect = btnRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const menuHeight = 96; // aprox
+    if (spaceBelow < menuHeight) {
+      openUp = true;
+      topStyle = "auto";
+    }
+  }
+
+  const guard = (enabled) => (e) => { if (!enabled) e.preventDefault(); };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        ref={btnRef}
+        type="button"
+        className="btn btn--sm btn--muted btn--icon"
+        aria-label="Mais ações"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setOpenMenuId(isOpen ? null : id)}
+        title="mais ações"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div
+          role="menu"
+          className="card"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: openUp ? "auto" : topStyle,
+            bottom: openUp ? "calc(100% + 6px)" : "auto",
+            padding: 8,
+            zIndex: 20,
+            minWidth: 160,
+          }}
+        >
+          <div className="row" style={{ gap: 6 }}>
+            <Link
+              role="menuitem"
+              className="btn btn--sm btn--orange"
+              to={`/campeonatos/${id}/partidas`}
+              aria-disabled={!temPartidas}
+              onClick={(e)=>{ guard(temPartidas)(e); if(temPartidas) setOpenMenuId(null); }}
+            >Ver partidas</Link>
+            <Link
+              role="menuitem"
+              className="btn btn--sm btn--muted"
+              to={`/campeonatos/${id}/tabela`}
+              aria-disabled={!temClassificacao}
+              onClick={(e)=>{ guard(temClassificacao)(e); if(temClassificacao) setOpenMenuId(null); }}
+            >Ver tabela</Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JogadoresBlock({ jogadores, time }) {
   const total = jogadores?.length || 0;
-
   const header = (
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-      <div className="text-muted">{total} jogador(es)</div>
+      <span className="badge">{total} jogador(es)</span>
       <Link to={`/jogadores?time=${time.id}`} className="btn btn--orange">Gerenciar jogadores</Link>
     </div>
   );
@@ -365,8 +438,6 @@ function JogadoresBlock({ jogadores, time }) {
           const subtitulo = [j.nome, (j.numero || j.numero === 0) && `#${j.numero}`, j.posicao]
             .filter(Boolean)
             .join(" — ");
-
-          // Passa múltiplos aliases de props para garantir compatibilidade com TeamIcon
           const icone = (<TeamIcon team={time} size={24} />);
 
           return (

@@ -270,7 +270,7 @@ export default function Campeonatos() {
               <option value="mais_antigo">Mais antigo</option>
             </select>
             <button className="btn btn--orange" onClick={() => { resetForm(); setAbrirCadastro(true); }}>
-              Novo Campeonato
+              + Novo Campeonato
             </button>
           </div>
         </div>
