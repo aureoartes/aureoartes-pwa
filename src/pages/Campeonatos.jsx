@@ -1,9 +1,4 @@
-// src/pages/Campeonatos.jsx — abrir cadastro/edição funcionando
-// - Seção de cadastro aparece ao clicar em "Novo Campeonato" ou "Editar"
-// - Mantém padrão de lista simples e MenuAcoesNarrow no mobile
-// - Filtra por USUARIO_ID fixo
-// - Regras de exibição dos botões Tabela/Partidas conforme formato
-
+// src/pages/Campeonatos.jsx — corrigido menu mobile controlado (sem pílula)
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
@@ -21,21 +16,18 @@ export default function Campeonatos() {
   const navigate = useNavigate();
   const formRef = useRef(null);
 
-  // Lista
   const [lista, setLista] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ordenacao, setOrdenacao] = useState("alfabetica");
   const [campIdsComPartidas, setCampIdsComPartidas] = useState(new Set());
 
-  // Form/cadastro
   const [abrirCadastro, setAbrirCadastro] = useState(false);
-  const [editando, setEditando] = useState(null); // objeto do camp sendo editado
+  const [editando, setEditando] = useState(null);
 
-  // Campos
   const [nome, setNome] = useState("");
   const [idaVolta, setIdaVolta] = useState(false);
   const [categoria, setCategoria] = useState("Futebol de Botão");
-  const [formato, setFormato] = useState("pontos_corridos"); // pontos_corridos | grupos | mata_mata
+  const [formato, setFormato] = useState("pontos_corridos");
   const [numeroEquipes, setNumeroEquipes] = useState(4);
   const [duracaoTempo, setDuracaoTempo] = useState(10);
   const [numeroGrupos, setNumeroGrupos] = useState(2);
@@ -44,7 +36,9 @@ export default function Campeonatos() {
   const [duracaoProrrogacao, setDuracaoProrrogacao] = useState(5);
   const [qtdPenaltis, setQtdPenaltis] = useState(5);
 
-  // Carregar lista e saber quem tem partidas
+  // menu mobile controlado
+  const [openMenuId, setOpenMenuId] = useState(null);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -166,11 +160,7 @@ export default function Campeonatos() {
       if (error) return alert("❌ Erro ao salvar");
       alert("✅ Campeonato criado!");
     }
-    // Refresh
-    const { data } = await supabase
-      .from("campeonatos")
-      .select("*")
-      .eq("usuario_id", USUARIO_ID);
+    const { data } = await supabase.from("campeonatos").select("*").eq("usuario_id", USUARIO_ID);
     setLista(data || []);
     setAbrirCadastro(false);
     setEditando(null);
@@ -178,7 +168,6 @@ export default function Campeonatos() {
 
   return (
     <div className="container">
-      {/* Header */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
@@ -197,13 +186,11 @@ export default function Campeonatos() {
         </div>
       </div>
 
-      {/* Cadastro/Edição (visível somente quando abrirCadastro=true) */}
       {abrirCadastro && (
         <div ref={formRef} className="card" style={{ marginBottom: 12, padding: 16 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editando ? "Editar Campeonato" : "Cadastrar Campeonato"}</div>
           </div>
-
           <div className="grid grid-2">
             {/* Linha 1 */}
             <div className="field">
@@ -294,7 +281,6 @@ export default function Campeonatos() {
         </div>
       )}
 
-      {/* Lista */}
       <div className="card" style={{ padding: 0 }}>
         <ul className="list">
           {loading ? (
@@ -305,18 +291,16 @@ export default function Campeonatos() {
             listaOrdenada.map((c) => {
               const tem = hasPartidas(c.id);
               const isMataMata = c.formato === "mata_mata";
-              const showTabela = !isMataMata; // pontos corridos / grupos
-              const showPartidas = isMataMata; // mata-mata
+              const showTabela = !isMataMata;
+              const showPartidas = isMataMata;
               return (
                 <li key={c.id} className="list__item">
                   <div className="list__left" style={{ minWidth: 0 }}>
-                    <div>
-                      <div className="list__title">{c.nome}</div>
-                      <div className="list__subtitle">{c.categoria} · {labelFormato(c.formato)} · {c.numero_equipes} equipes</div>
-                    </div>
+                    <div className="list__title">{c.nome}</div>
+                    <div className="list__subtitle">{c.categoria} · {labelFormato(c.formato)} · {c.numero_equipes} equipes</div>
                   </div>
 
-                  {/* Desktop */}
+                  {/* Desktop actions */}
                   <div className="row hide-sm" style={{ gap: 8 }}>
                     <button className="btn btn--orange" onClick={() => abrirEditar(c)}>Editar</button>
                     <button className="btn btn--red" onClick={() => excluir(c)}>Excluir</button>
@@ -329,14 +313,19 @@ export default function Campeonatos() {
                     )}
                   </div>
 
-                  {/* Mobile */}
-                  <div className="show-sm" style={{ zIndex: 5 }}>
+                  {/* Mobile actions */}
+                  <div className="show-sm">
                     <MenuAcoesNarrow
-                      onEditar={() => abrirEditar(c)}
-                      onExcluir={() => excluir(c)}
-                      onEquipes={() => navigate(`/campeonatos/${c.id}/equipes`)}
-                      {...(showTabela ? { onTabela: () => tem ? navigate(`/campeonatos/${c.id}/classificacao`) : alert("Gere partidas para habilitar") } : {})}
-                      {...(showPartidas ? { onPartidas: () => tem ? navigate(`/campeonatos/${c.id}/partidas`) : alert("Gere partidas para habilitar") } : {})}
+                      id={c.id}
+                      openMenuId={openMenuId}
+                      setOpenMenuId={setOpenMenuId}
+                      actions={[
+                        { label: "Equipes", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
+                        showTabela ? { label: "Tabela", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/classificacao`) } : null,
+                        showPartidas ? { label: "Partidas", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/partidas`) } : null,
+                        { label: "Editar", onClick: () => abrirEditar(c) },
+                        { label: "Excluir", variant: "red", onClick: () => excluir(c) },
+                      ].filter(Boolean)}
                     />
                   </div>
                 </li>
