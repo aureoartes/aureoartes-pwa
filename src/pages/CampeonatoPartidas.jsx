@@ -1,9 +1,8 @@
-// src/pages/CampeonatoPartidas.jsx — correções finais
-// - Botão "Abrir placar" navega para /placar/:partidaId (não mais para Home)
-// - Campos gols na edição seguem padrão de campos (label + input.input), aceitando somente números ≥ 0
-// - Layout de edição padronizado como Jogadores.jsx
-// - Mobile usa MenuAcoesNarrow; desktop usa botões inline
-// - Nome vs sigla: Desktop mostra nome, Mobile mostra sigla
+// src/pages/CampeonatoPartidas.jsx — ajustes
+// - Botão "Abrir placar" navega para rota correta (/partidas/:id/placar)
+// - Botão "Reiniciar" removido da lista, fica só na seção de edição
+// - Após salvar edição, atualiza a lista de partidas (placar e infos)
+// - Se usuário preencher gols mas não marcar encerrada, pergunta se deseja encerrar
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -62,6 +61,7 @@ export default function CampeonatoPartidas() {
   const [erroForm, setErroForm] = useState("");
 
   useEffect(() => {
+    carregar();
     async function carregar() {
       setLoading(true);
       setErrorMsg("");
@@ -78,11 +78,9 @@ export default function CampeonatoPartidas() {
           .order("data_hora", { ascending: true })
           .order("id", { ascending: true });
         setPartidas(ps || []);
-      } catch (err) {
-        setErrorMsg(err?.message || "Falha ao carregar partidas");
-      } finally { setLoading(false); }
+      } catch (err) { setErrorMsg(err?.message || "Falha ao carregar partidas"); }
+      finally { setLoading(false); }
     }
-    carregar();
   }, [campeonatoId]);
 
   const grupos = useMemo(() => {
@@ -113,16 +111,30 @@ export default function CampeonatoPartidas() {
   }
   function cancelarEdicao() { setEditandoId(null); setErroForm(""); }
   function clampInt(v) { if (v === "") return ""; const n = parseInt(v,10); return isNaN(n)||n<0?0:n; }
-  function validar(payload){ if(payload.encerrada && (payload.gols_time_a===""||payload.gols_time_b==="")) return "Informe gols para encerrar."; return ""; }
 
   async function salvarEdicao(){
     if(!editandoId)return;
     let data_hora=null; if(formEdicao.data&&formEdicao.hora)data_hora=`${formEdicao.data}T${formEdicao.hora}:00`;
-    const payload={gols_time_a:clampInt(formEdicao.gols_time_a),gols_time_b:clampInt(formEdicao.gols_time_b),encerrada:!!formEdicao.encerrada,data_hora,local:formEdicao.local?.trim()||null};
-    const msg=validar(payload); if(msg){setErroForm(msg);return;}
+    let encerrada=formEdicao.encerrada;
+    if(!encerrada && (formEdicao.gols_time_a!==""||formEdicao.gols_time_b!=="")){
+      if(window.confirm("Deseja encerrar a partida com os gols informados?")) encerrada=true;
+    }
+    const payload={gols_time_a:clampInt(formEdicao.gols_time_a),gols_time_b:clampInt(formEdicao.gols_time_b),encerrada,data_hora,local:formEdicao.local?.trim()||null};
     await supabase.from("partidas").update(payload).eq("id",editandoId);
+    // refresh lista após editar
+    const { data: ps } = await supabase
+      .from("partidas")
+      .select(`id,campeonato_id,rodada,grupo,is_mata_mata,etapa,perna,data_hora,"local",encerrada,time_a_id,time_b_id,gols_time_a,gols_time_b,
+               time_a:time_a_id(id,nome,abreviacao,cor1,cor2,cor_detalhe),
+               time_b:time_b_id(id,nome,abreviacao,cor1,cor2,cor_detalhe)`)
+      .eq("campeonato_id", campeonatoId)
+      .order("rodada", { ascending: true, nullsFirst: false })
+      .order("data_hora", { ascending: true })
+      .order("id", { ascending: true });
+    setPartidas(ps || []);
     setEditandoId(null); setErroForm("");
   }
+
   async function reiniciarPartida(id){ if(!window.confirm("Reiniciar?"))return; await supabase.from("partidas").update({gols_time_a:0,gols_time_b:0,encerrada:false}).eq("id",id); }
 
   if(loading)return <div className="container"><div className="card">Carregando…</div></div>;
@@ -154,14 +166,12 @@ export default function CampeonatoPartidas() {
             const labelA=isNarrow?(p.time_a?.abreviacao||"—"):(p.time_a?.nome||"—");
             const labelB=isNarrow?(p.time_b?.abreviacao||"—"):(p.time_b?.nome||"—");
             const acoesWide=<div className="row hide-sm" style={{gap:8}}>
-              <button className="btn btn--sm btn--muted" disabled={!podeAbrirPlacar} onClick={()=>navigate(`/placar/${p.id}`)}>Abrir placar</button>
+              <button className="btn btn--sm btn--muted" disabled={!podeAbrirPlacar} onClick={()=>navigate(`/partidas/${p.id}/placar`)}>Abrir placar</button>
               <button className="btn btn--sm btn--orange" onClick={()=>abrirEdicao(p)}>Editar</button>
-              <button className="btn btn--sm btn--red" disabled={!p.encerrada} onClick={()=>reiniciarPartida(p.id)}>Reiniciar</button>
             </div>;
             const acoesNarrow=<div className="show-sm"><MenuAcoesNarrow id={p.id} actions={[
-              {label:"Abrir placar",variant:"muted",disabled:!podeAbrirPlacar,onClick:()=>navigate(`/placar/${p.id}`)},
-              {label:"Editar",variant:"orange",onClick:()=>abrirEdicao(p)},
-              {label:"Reiniciar",variant:"red",disabled:!p.encerrada,onClick:()=>reiniciarPartida(p.id)}]} /></div>;
+              {label:"Abrir placar",variant:"muted",disabled:!podeAbrirPlacar,onClick:()=>navigate(`/partidas/${p.id}/placar`)},
+              {label:"Editar",variant:"orange",onClick:()=>abrirEdicao(p)}]} /></div>;
             return <li key={p.id} className="list__item">
               <div className="list__left" style={{minWidth:0}}>
                 <div className="row" style={{gap:8,alignItems:"center",flexWrap:"wrap"}}>
