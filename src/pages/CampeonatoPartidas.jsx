@@ -1,306 +1,224 @@
-// src/pages/CampeonatoPartidas.jsx (atualizado)
+// src/pages/CampeonatoPartidas.jsx — correções finais
+// - Botão "Abrir placar" navega para /placar/:partidaId (não mais para Home)
+// - Campos gols na edição seguem padrão de campos (label + input.input), aceitando somente números ≥ 0
+// - Layout de edição padronizado como Jogadores.jsx
+// - Mobile usa MenuAcoesNarrow; desktop usa botões inline
+// - Nome vs sigla: Desktop mostra nome, Mobile mostra sigla
+
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
-import { USUARIO_ID } from "../config/appUser";
+import TeamIcon from "../components/TeamIcon";
+import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
+
+function useIsNarrow(maxWidth = 520) {
+  const [narrow, setNarrow] = useState(
+    typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${maxWidth}px)`);
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener?.("change", onChange);
+    mq.addListener?.(onChange);
+    return () => {
+      mq.removeEventListener?.("change", onChange);
+      mq.removeListener?.(onChange);
+    };
+  }, [maxWidth]);
+  return narrow;
+}
+
+function toDateStr(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function toTimeStr(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function toLocalDateTimeLabel(ts, fallback = "Data a definir") {
+  if (!ts) return fallback;
+  try {
+    const d = new Date(ts);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function CampeonatoPartidas() {
   const { id: campeonatoId } = useParams();
   const navigate = useNavigate();
+  const isNarrow = useIsNarrow(640);
 
   const [camp, setCamp] = useState(null);
-  const [timesMap, setTimesMap] = useState(new Map()); // id -> {nome, abreviacao}
-  const [grupoPorTime, setGrupoPorTime] = useState(new Map()); // time_id -> grupo (int) ou null
   const [partidas, setPartidas] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Filtros
-  const [rodadaSel, setRodadaSel] = useState("todas");
-  const [statusSel, setStatusSel] = useState("todas"); // todas | pendentes | encerradas
+  const [errorMsg, setErrorMsg] = useState("");
+  const [editandoId, setEditandoId] = useState(null);
+  const [formEdicao, setFormEdicao] = useState({ gols_time_a: "", gols_time_b: "", local: "", data: "", hora: "", encerrada: false });
+  const [erroForm, setErroForm] = useState("");
 
   useEffect(() => {
-    carregarTudo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    async function carregar() {
+      setLoading(true);
+      setErrorMsg("");
+      try {
+        const { data: c } = await supabase.from("campeonatos").select("*").eq("id", campeonatoId).single();
+        setCamp(c || null);
+        const { data: ps } = await supabase
+          .from("partidas")
+          .select(`id,campeonato_id,rodada,grupo,is_mata_mata,etapa,perna,data_hora,"local",encerrada,time_a_id,time_b_id,gols_time_a,gols_time_b,
+                   time_a:time_a_id(id,nome,abreviacao,cor1,cor2,cor_detalhe),
+                   time_b:time_b_id(id,nome,abreviacao,cor1,cor2,cor_detalhe)`)
+          .eq("campeonato_id", campeonatoId)
+          .order("rodada", { ascending: true, nullsFirst: false })
+          .order("data_hora", { ascending: true })
+          .order("id", { ascending: true });
+        setPartidas(ps || []);
+      } catch (err) {
+        setErrorMsg(err?.message || "Falha ao carregar partidas");
+      } finally { setLoading(false); }
+    }
+    carregar();
   }, [campeonatoId]);
 
-  async function carregarTudo() {
-    setLoading(true);
-    try {
-      // campeonato
-      const { data: c } = await supabase
-        .from("campeonatos")
-        .select("*")
-        .eq("id", campeonatoId)
-        .single();
-      setCamp(c || null);
-
-      // partidas
-      const { data: ps } = await supabase
-        .from("partidas")
-        .select("*")
-        .eq("campeonato_id", campeonatoId)
-        .order("rodada", { ascending: true });
-      setPartidas(ps || []);
-
-      // times do usuário (pode filtrar depois por ids usados nas partidas)
-      const { data: ts } = await supabase
-        .from("times")
-        .select("id, nome, abreviacao")
-        .eq("usuario_id", USUARIO_ID);
-      const tmap = new Map();
-      (ts || []).forEach((t) => tmap.set(t.id, t));
-      setTimesMap(tmap);
-
-      // grupos (apenas se formato = grupos)
-      if (c?.formato === "grupos") {
-        const { data: cts } = await supabase
-          .from("campeonato_times")
-          .select("time_id, grupo")
-          .eq("campeonato_id", campeonatoId);
-        const gmap = new Map();
-        (cts || []).forEach((row) => gmap.set(row.time_id, row.grupo));
-        setGrupoPorTime(gmap);
-      } else {
-        setGrupoPorTime(new Map());
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function nomeTime(id) {
-    return timesMap.get(id)?.nome || "—";
-  }
-  function abrevTime(id) {
-    return timesMap.get(id)?.abreviacao || "";
-  }
-  function siglaOuTraco(id) {
-    const s = abrevTime(id);
-    return s && s.trim() ? s : "—";
-  }
-  function fmtGrupo(g) {
-    if (!g) return null;
-    // se vier int (1=A, 2=B...), se já for string/char manter
-    if (typeof g === "number")
-      return String.fromCharCode("A".charCodeAt(0) + g - 1);
-    // se vier string tipo "A" manter
-    const s = String(g).trim();
-    if (s.length === 1 && /[A-Z]/i.test(s)) return s.toUpperCase();
-    return s;
-  }
-  function fmtDataHora(ts) {
-    if (!ts) return "Agendar";
-    const d = new Date(ts);
-    const dia = String(d.getDate()).padStart(2, "0");
-    const mes = String(d.getMonth() + 1).padStart(2, "0");
-    const hora = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
-    return `${dia}/${mes} ${hora}:${min}`;
-  }
-  function hasTwoTeams(p) {
-    return !!(p?.time_a_id && p?.time_b_id);
-  }
-  function golsOuTraco(v) {
-    return typeof v === "number" ? v : "—";
-  }
-
-  // montar lista com label de grupo (se formato = grupos)
-  const partidasDecoradas = useMemo(() => {
-    return (partidas || []).map((p) => {
-      const grupoA = fmtGrupo(grupoPorTime.get(p.time_a_id));
-      const grupoB = fmtGrupo(grupoPorTime.get(p.time_b_id));
-      let grupoLabel = null;
-      if (camp?.formato === "grupos") {
-        // se ambos grupos existem e iguais → mostra “Grupo X”
-        if (grupoA && grupoB && grupoA === grupoB) grupoLabel = `Grupo ${grupoA}`;
-        else grupoLabel = "Grupos";
-      }
-      return { ...p, grupoLabel };
-    });
-  }, [partidas, grupoPorTime, camp]);
-
-  const rodadasDisponiveis = useMemo(() => {
-    const s = new Set(partidasDecoradas.map((p) => p.rodada));
-    return Array.from(s).sort((a, b) => a - b);
-  }, [partidasDecoradas]);
-
-  const partidasFiltradas = useMemo(() => {
-    let arr = [...partidasDecoradas];
-
-    if (rodadaSel !== "todas") {
-      const r = parseInt(rodadaSel, 10);
-      arr = arr.filter((p) => p.rodada === r);
-    }
-
-    if (statusSel === "pendentes") {
-      arr = arr.filter((p) => !p.encerrada);
-    } else if (statusSel === "encerradas") {
-      arr = arr.filter((p) => !!p.encerrada);
-    }
-
-    arr.sort(
-      (a, b) =>
-        a.rodada - b.rodada || nomeTime(a.time_a_id).localeCompare(nomeTime(b.time_a_id))
-    );
-    return arr;
-  }, [partidasDecoradas, rodadaSel, statusSel]);
-
-  // >>> AGRUPAMENTO VISUAL POR RODADA / FASE (grupoLabel quando houver)
-  const gruposPorCabecalho = useMemo(() => {
+  const grupos = useMemo(() => {
     const map = new Map();
-    for (const p of partidasFiltradas) {
-      const cabRod = p.rodada != null ? `Rodada ${p.rodada}` : "Sem rodada";
-      const cabGrupo = p.grupoLabel ? ` — ${p.grupoLabel}` : "";
-      const header = cabRod + cabGrupo;
-      if (!map.has(header)) map.set(header, []);
-      map.get(header).push(p);
+    for (const p of partidas || []) {
+      let chave;
+      if (p.rodada != null) chave = `Rodada ${p.rodada}`;
+      else if (p.is_mata_mata) chave = `${p.etapa || "Mata-mata"}${p.perna ? ` · Jogo ${p.perna}` : ""}`;
+      else if (p.grupo != null) chave = `Grupo ${p.grupo}`;
+      else chave = "Partidas";
+      if (!map.has(chave)) map.set(chave, []);
+      map.get(chave).push(p);
     }
-    // retorna lista de [header, partidas[]]
     return Array.from(map.entries());
-  }, [partidasFiltradas]);
+  }, [partidas]);
 
-  if (loading || !camp) {
-    return (
-      <div className="container">
-        <div className="card" style={{ padding: 16 }}>Carregando…</div>
-      </div>
-    );
+  function abrirEdicao(p) {
+    setErroForm("");
+    setEditandoId(p.id);
+    setFormEdicao({
+      gols_time_a: p.gols_time_a ?? "",
+      gols_time_b: p.gols_time_b ?? "",
+      local: p["local"] || "",
+      data: toDateStr(p.data_hora),
+      hora: toTimeStr(p.data_hora),
+      encerrada: !!p.encerrada,
+    });
   }
+  function cancelarEdicao() { setEditandoId(null); setErroForm(""); }
+  function clampInt(v) { if (v === "") return ""; const n = parseInt(v,10); return isNaN(n)||n<0?0:n; }
+  function validar(payload){ if(payload.encerrada && (payload.gols_time_a===""||payload.gols_time_b==="")) return "Informe gols para encerrar."; return ""; }
 
-  return (
-    <div className="container">
-      {/* HEADER */}
-      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h1 style={{ margin: 0 }}>{camp.nome}</h1>
-            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-              {camp.categoria} — {labelFormato(camp.formato)} — {partidas.length} partidas
-            </div>
-          </div>
-          <div className="row" style={{ gap: 6 }}>
-            <Link to={`/campeonatos/${camp.id}/equipes`} className="btn btn--muted">Equipes</Link>
-            <Link to="/campeonatos" className="btn btn--muted">Voltar</Link>
-          </div>
+  async function salvarEdicao(){
+    if(!editandoId)return;
+    let data_hora=null; if(formEdicao.data&&formEdicao.hora)data_hora=`${formEdicao.data}T${formEdicao.hora}:00`;
+    const payload={gols_time_a:clampInt(formEdicao.gols_time_a),gols_time_b:clampInt(formEdicao.gols_time_b),encerrada:!!formEdicao.encerrada,data_hora,local:formEdicao.local?.trim()||null};
+    const msg=validar(payload); if(msg){setErroForm(msg);return;}
+    await supabase.from("partidas").update(payload).eq("id",editandoId);
+    setEditandoId(null); setErroForm("");
+  }
+  async function reiniciarPartida(id){ if(!window.confirm("Reiniciar?"))return; await supabase.from("partidas").update({gols_time_a:0,gols_time_b:0,encerrada:false}).eq("id",id); }
+
+  if(loading)return <div className="container"><div className="card">Carregando…</div></div>;
+  if(errorMsg)return <div className="container"><div className="card">❌ {errorMsg}</div></div>;
+  if(!camp)return <div className="container"><div className="card">Campeonato não encontrado</div></div>;
+
+  const showTabelaBtn=["pontos_corridos","grupos"].includes((camp?.formato||"").toLowerCase());
+
+  return <div className="container">
+    <div className="card" style={{padding:16,marginBottom:12,background:"#f9fafb"}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h1 style={{margin:0,fontSize:24}}>Partidas — {camp.nome}</h1>
+          <div className="text-muted" style={{fontSize:13,marginTop:4}}>{camp.categoria}</div>
+        </div>
+        <div className="row" style={{gap:8}}>
+          {showTabelaBtn&&<Link to={`/campeonatos/${camp.id}/classificacao`} className="btn btn--muted">Tabela</Link>}
+          <Link to={`/campeonatos`} className="btn btn--muted">Voltar</Link>
         </div>
       </div>
-
-      {/* FILTROS */}
-      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ gap: 12, alignItems: "end", flexWrap: "wrap" }}>
-          <div>
-            <label className="label">Rodada</label>
-            <select className="select" value={rodadaSel} onChange={(e) => setRodadaSel(e.target.value)}>
-              <option value="todas">Todas</option>
-              {rodadasDisponiveis.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="label">Status</label>
-            <select className="select" value={statusSel} onChange={(e) => setStatusSel(e.target.value)}>
-              <option value="todas">Todas</option>
-              <option value="pendentes">Pendentes</option>
-              <option value="encerradas">Encerradas</option>
-            </select>
-          </div>
-
-          <button className="btn btn--orange" onClick={carregarTudo}>Atualizar</button>
-        </div>
-      </div>
-
-      {/* LISTA AGRUPADA */}
-      {gruposPorCabecalho.length === 0 ? (
-        <div className="card" style={{ padding: 16 }}>
-          <p style={{ margin: 0 }}>Nenhuma partida encontrada com os filtros atuais.</p>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 0 }}>
-          {gruposPorCabecalho.map(([header, items]) => (
-            <section key={header} style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
-              <div style={{
-                fontWeight: 700,
-                fontSize: 14,
-                marginBottom: 8,
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-                color: "var(--muted)"
-              }}>{header}</div>
-
-              <ul className="list" style={{ margin: 0 }}>
-                {items.map((p) => {
-                  const timeA = nomeTime(p.time_a_id);
-                  const timeB = nomeTime(p.time_b_id);
-                  const infos = [
-                    fmtDataHora(p.data_hora),
-                    p.local || "Local a definir",
-                  ].filter(Boolean).join(" — ");
-
-                  return (
-                    <li key={p.id} className="list__item">
-                      <div className="list__left" style={{ minWidth: 0 }}>
-                        {/* LINHA DE PLACAR NO NOVO PADRÃO */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <TeamIcon enabled={!!p.time_a_id} />
-                          <span className="mono" style={{ minWidth: 28, textAlign: "right" }}>
-                            {siglaOuTraco(p.time_a_id)}
-                          </span>
-                          <span style={{ fontWeight: 700 }}>{golsOuTraco(p.gols_time_a)}</span>
-                          <span style={{ opacity: 0.7 }}>x</span>
-                          <span style={{ fontWeight: 700 }}>{golsOuTraco(p.gols_time_b)}</span>
-                          <span className="mono" style={{ minWidth: 28, textAlign: "left" }}>
-                            {siglaOuTraco(p.time_b_id)}
-                          </span>
-                          <TeamIcon enabled={!!p.time_b_id} />
-                        </div>
-                        {/* SUBINFORMAÇÕES */}
-                        <div className="list__subtitle" title={infos}>{infos}</div>
-                      </div>
-
-                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                        <button
-                          className="btn btn--primary"
-                          onClick={() => navigate(`/partidas/${p.id}/placar`)}
-                          disabled={!hasTwoTeams(p)}
-                          title={hasTwoTeams(p) ? "Abrir placar" : "Defina os dois times para habilitar"}
-                        >
-                          Abrir Placar
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
-
-      {/* ESTILOS LOCAIS PARA O ÍCONE PADRÃO */}
-      <style>{`
-        .team-icon {
-          width: 22px; height: 22px; border-radius: 50%;
-          display: inline-block; flex-shrink: 0;
-          background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.9), rgba(220,220,220,.9) 40%, rgba(0,0,0,.08) 41%);
-          box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.08);
-        }
-        .team-icon--empty { background: transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
-        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      `}</style>
     </div>
-  );
 
-  function labelFormato(v) {
-    if (v === "pontos_corridos") return "Pontos Corridos";
-    if (v === "grupos") return "Grupos";
-    if (v === "mata_mata") return "Mata-mata";
-    return v;
-  }
-}
-
-// Componente simples para ícone padrão do time
-function TeamIcon({ enabled }) {
-  return <span className={`team-icon${enabled ? "" : " team-icon--empty"}`} aria-hidden />;
+    {grupos.map(([titulo,lista])=>(
+      <div key={titulo} className="card" style={{padding:0,marginBottom:12}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",fontWeight:700}}>{titulo}</div>
+        <ul className="list">
+          {lista.map(p=>{
+            const podeAbrirPlacar=!!(p.time_a_id&&p.time_b_id);
+            const labelA=isNarrow?(p.time_a?.abreviacao||"—"):(p.time_a?.nome||"—");
+            const labelB=isNarrow?(p.time_b?.abreviacao||"—"):(p.time_b?.nome||"—");
+            const acoesWide=<div className="row hide-sm" style={{gap:8}}>
+              <button className="btn btn--sm btn--muted" disabled={!podeAbrirPlacar} onClick={()=>navigate(`/placar/${p.id}`)}>Abrir placar</button>
+              <button className="btn btn--sm btn--orange" onClick={()=>abrirEdicao(p)}>Editar</button>
+              <button className="btn btn--sm btn--red" disabled={!p.encerrada} onClick={()=>reiniciarPartida(p.id)}>Reiniciar</button>
+            </div>;
+            const acoesNarrow=<div className="show-sm"><MenuAcoesNarrow id={p.id} actions={[
+              {label:"Abrir placar",variant:"muted",disabled:!podeAbrirPlacar,onClick:()=>navigate(`/placar/${p.id}`)},
+              {label:"Editar",variant:"orange",onClick:()=>abrirEdicao(p)},
+              {label:"Reiniciar",variant:"red",disabled:!p.encerrada,onClick:()=>reiniciarPartida(p.id)}]} /></div>;
+            return <li key={p.id} className="list__item">
+              <div className="list__left" style={{minWidth:0}}>
+                <div className="row" style={{gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <TeamIcon team={{cor1:p.time_a?.cor1,cor2:p.time_a?.cor2,cor_detalhe:p.time_a?.cor_detalhe}} size={20}/>
+                  <span className="mono">{labelA}</span>
+                  <strong className="mono">{p.encerrada?(p.gols_time_a??0):"—"}</strong>
+                  <span className="mono">x</span>
+                  <strong className="mono">{p.encerrada?(p.gols_time_b??0):"—"}</strong>
+                  <span className="mono">{labelB}</span>
+                  <TeamIcon team={{cor1:p.time_b?.cor1,cor2:p.time_b?.cor2,cor_detalhe:p.time_b?.cor_detalhe}} size={20}/>
+                </div>
+                <div className="list__subtitle" style={{marginTop:4}}>{toLocalDateTimeLabel(p.data_hora)}{p["local"]?` · ${p["local"]}`:""}</div>
+              </div>
+              {acoesWide}{acoesNarrow}
+              {editandoId===p.id&&<div className="card" style={{marginTop:10,width:"100%"}}>
+                <div className="row" style={{justifyContent:"space-between",alignItems:"center",padding:12}}>
+                  <div className="collapsible__title">Editar Partida</div>
+                </div>
+                <div style={{padding:12}}>
+                  <div className="grid grid-2">
+                    <div className="field">
+                      <label className="label">Gols {p.time_a?.abreviacao||p.time_a?.nome||"Time A"}</label>
+                      <input className="input" type="number" min={0} value={formEdicao.gols_time_a} onChange={e=>setFormEdicao(f=>({...f,gols_time_a:clampInt(e.target.value)}))}/>
+                    </div>
+                    <div className="field">
+                      <label className="label">Gols {p.time_b?.abreviacao||p.time_b?.nome||"Time B"}</label>
+                      <input className="input" type="number" min={0} value={formEdicao.gols_time_b} onChange={e=>setFormEdicao(f=>({...f,gols_time_b:clampInt(e.target.value)}))}/>
+                    </div>
+                    <div className="field">
+                      <label className="label">Local</label>
+                      <input className="input" type="text" value={formEdicao.local} onChange={e=>setFormEdicao(f=>({...f,local:e.target.value}))}/>
+                    </div>
+                    <div className="field">
+                      <label className="label">Data</label>
+                      <input className="input" type="date" value={formEdicao.data} onChange={e=>setFormEdicao(f=>({...f,data:e.target.value}))}/>
+                    </div>
+                    <div className="field">
+                      <label className="label">Hora</label>
+                      <input className="input" type="time" value={formEdicao.hora} onChange={e=>setFormEdicao(f=>({...f,hora:e.target.value}))}/>
+                    </div>
+                    <div className="field" style={{display:"flex",alignItems:"center",gap:8}}>
+                      <input id={`enc-${p.id}`} type="checkbox" checked={!!formEdicao.encerrada} onChange={e=>setFormEdicao(f=>({...f,encerrada:e.target.checked}))}/>
+                      <label htmlFor={`enc-${p.id}`}>Encerrada</label>
+                    </div>
+                  </div>
+                  {erroForm&&<div style={{color:"#b91c1c",marginTop:8}}>{erroForm}</div>}
+                  <div className="row" style={{gap:8,marginTop:10}}>
+                    <button className="btn btn--primary" onClick={salvarEdicao}>Salvar</button>
+                    <button className="btn btn--muted" onClick={cancelarEdicao}>Cancelar</button>
+                    <button className="btn btn--red" disabled={!p.encerrada} onClick={()=>reiniciarPartida(p.id)}>Reiniciar</button>
+                  </div>
+                </div>
+              </div>}
+            </li>;
+          })}
+        </ul>
+      </div>
+    ))}
+  </div>;
 }
