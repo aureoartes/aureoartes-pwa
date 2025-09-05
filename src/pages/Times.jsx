@@ -3,17 +3,20 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import { getContrastShadow } from "../utils/colors";
-import ColorSwatchSelect, { COLOR_OPTIONS } from "../components/ColorSwatchSelect";
-
-const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+import ColorSwatchSelect from "../components/ColorSwatchSelect";
+import QuickAddInline from "../components/QuickAddInline";
+import { USUARIO_ID } from "../config/appUser";
 
 export default function Times() {
+  // Listas
   const [times, setTimes] = useState([]);
   const [regioes, setRegioes] = useState([]);
+
+  // Filtros/ordenacao
   const [ordenacao, setOrdenacao] = useState("alfabetica");
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
 
-  // cadastro/edição
+  // Cadastro/edição (oculto por padrão)
   const [abrirCadastro, setAbrirCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
@@ -24,6 +27,9 @@ export default function Times() {
   const [cor2, setCor2] = useState("#000000");
   const [corDetalhe, setCorDetalhe] = useState("#000000");
   const [regiaoId, setRegiaoId] = useState("");
+
+  // QuickAddInline (popover) — SOMENTE no formulário
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -66,16 +72,16 @@ export default function Times() {
     setRegiaoId(regiaoFiltroId || "");
   }
 
-  function handleEdit(time) {
-    setEditandoId(time.id);
-    setNome(time.nome || "");
-    setAbreviacao(time.abreviacao || "");
-    setCategoria(time.categoria || "Futebol de Botão");
-    setEscudoUrl(time.escudo_url || "");
-    setCor1(time.cor1 || "#FFFFFF");
-    setCor2(time.cor2 || "#000000");
-    setCorDetalhe(time.cor_detalhe || "#000000");
-    setRegiaoId(time.regiao_id || "");
+  function handleEdit(t) {
+    setEditandoId(t.id);
+    setNome(t.nome || "");
+    setAbreviacao(t.abreviacao || "");
+    setCategoria(t.categoria || "Futebol de Botão");
+    setEscudoUrl(t.escudo_url || "");
+    setCor1(t.cor1 || "#FFFFFF");
+    setCor2(t.cor2 || "#000000");
+    setCorDetalhe(t.cor_detalhe || "#000000");
+    setRegiaoId(t.regiao_id || "");
     setAbrirCadastro(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -129,12 +135,33 @@ export default function Times() {
     setSaving(false);
   }
 
+  // Quick add região via popover (apenas no form)
+  async function createRegiao(descricao) {
+    const { data, error } = await supabase
+      .from("regioes")
+      .insert([{ usuario_id: USUARIO_ID, descricao }])
+      .select()
+      .single();
+    if (error) {
+      alert("❌ Erro ao cadastrar região.");
+      return;
+    }
+    await fetchRegioes();
+    setRegiaoId(data.id);         // já seleciona a recém-criada no form
+  }
+
+  // Filtro + ordenação
   const timesFiltrados = useMemo(() => {
     let arr = [...(times || [])];
     if (regiaoFiltroId) arr = arr.filter((t) => t.regiao_id === regiaoFiltroId);
-    if (ordenacao === "alfabetica") arr.sort((a, b) => (a?.nome || "").localeCompare(b?.nome || ""));
-    else if (ordenacao === "mais_recente") arr.sort((a, b) => (b?.criado_em || "").localeCompare(a?.criado_em || ""));
-    else if (ordenacao === "mais_antigo") arr.sort((a, b) => (a?.criado_em || "").localeCompare(b?.criado_em || ""));
+
+    if (ordenacao === "alfabetica") {
+      arr.sort((a, b) => (a?.nome || "").localeCompare(b?.nome || ""));
+    } else if (ordenacao === "mais_recente") {
+      arr.sort((a, b) => (b?.criado_em || "").localeCompare(a?.criado_em || ""));
+    } else if (ordenacao === "mais_antigo") {
+      arr.sort((a, b) => (a?.criado_em || "").localeCompare(b?.criado_em || ""));
+    }
     return arr;
   }, [times, ordenacao, regiaoFiltroId]);
 
@@ -149,6 +176,7 @@ export default function Times() {
               Cadastre, edite e gerencie os times da sua competição.
             </div>
           </div>
+
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <label className="label" style={{ margin: 0 }}>Ordenar:</label>
             <select className="select" value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
@@ -156,6 +184,7 @@ export default function Times() {
               <option value="mais_recente">Mais recente</option>
               <option value="mais_antigo">Mais antigo</option>
             </select>
+
             <label className="label" style={{ margin: "0 0 0 8px" }}>Região:</label>
             <select
               className="select"
@@ -168,6 +197,7 @@ export default function Times() {
                 <option key={r.id} value={r.id}>{r.descricao}</option>
               ))}
             </select>
+
             <button
               className="btn btn--orange"
               onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
@@ -178,14 +208,11 @@ export default function Times() {
         </div>
       </div>
 
-      {/* Cadastro oculto/editar */}
+      {/* Cadastro/edição (oculto por padrão) */}
       {abrirCadastro && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
-            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
-              Fechar
-            </button>
           </div>
 
           <div style={{ padding: 12 }}>
@@ -208,12 +235,39 @@ export default function Times() {
 
                 <div className="field">
                   <label className="label">Região</label>
-                  <select className="select" value={regiaoId} onChange={(e) => setRegiaoId(e.target.value)}>
-                    <option value="">Selecione…</option>
-                    {regioes.map((r) => (
-                      <option key={r.id} value={r.id}>{r.descricao}</option>
-                    ))}
-                  </select>
+                  <div style={{ position: "relative" }}>
+                    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                      <select
+                        className="select"
+                        value={regiaoId}
+                        onChange={(e) => setRegiaoId(e.target.value)}
+                        style={{ minWidth: 160 }}
+                      >
+                        <option value="">Selecione…</option>
+                        {regioes.map((r) => (
+                          <option key={r.id} value={r.id}>{r.descricao}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--orange"
+                        title="Nova região"
+                        onClick={() => setQuickAddOpen((v) => !v)}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {quickAddOpen && (
+                      <QuickAddInline
+                        label="Nova região"
+                        placeholder="Ex.: Zona Norte"
+                        align="left"
+                        onCreate={(descricao) => createRegiao(descricao)}
+                        onClose={() => setQuickAddOpen(false)}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 <div className="field">
@@ -221,9 +275,9 @@ export default function Times() {
                   <input className="input" value={escudoUrl} onChange={(e) => setEscudoUrl(e.target.value)} placeholder="https://..." />
                 </div>
 
-                <ColorSwatchSelect label="Cor Detalhe (sigla/borda)" value={corDetalhe} onChange={setCorDetalhe} />
                 <ColorSwatchSelect label="Cor 1" value={cor1} onChange={setCor1} />
                 <ColorSwatchSelect label="Cor 2" value={cor2} onChange={setCor2} />
+                <ColorSwatchSelect label="Cor Detalhe" value={corDetalhe} onChange={setCorDetalhe} />
               </div>
 
               <div className="row" style={{ gap: 8, marginTop: 12 }}>
@@ -239,64 +293,65 @@ export default function Times() {
         </div>
       )}
 
-      {/* Lista de times */}
-      <div className="grid grid-3">
-        {loading ? (
-          <div className="card" style={{ padding: 14 }}>Carregando…</div>
-        ) : timesFiltrados.length === 0 ? (
-          <div className="card" style={{ padding: 14 }}>Nenhum time encontrado.</div>
-        ) : (
-          timesFiltrados.map((time) => (
-            <TeamCard
-              key={time.id}
-              time={time}
-              onEdit={() => handleEdit(time)}
-              onDelete={() => handleDelete(time.id)}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
+      {/* Lista de times em cards detalhados */}
+      {loading ? (
+        <div className="card" style={{ padding: 14 }}>Carregando…</div>
+      ) : timesFiltrados.length === 0 ? (
+        <div className="card" style={{ padding: 14 }}>Nenhum time encontrado.</div>
+      ) : (
+        <div className="grid grid-3">
+          {timesFiltrados.map((t) => {
+            const c1 = t.cor1 || "#FFFFFF";
+            const c2 = t.cor2 || "#000000";
+            const cd = t.cor_detalhe || "#000000";
 
-function TeamCard({ time, onEdit, onDelete }) {
-  const c1 = time.cor1 || "#FFFFFF";
-  const c2 = time.cor2 || "#000000";
-  const cd = time.cor_detalhe || "#000000";
+            return (
+              <div key={t.id} className="card team-card">
+                <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
+                <div
+                  className="team-card__badge"
+                  style={{ "--cd": cd, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}
+                >
+                  {t.escudo_url ? (
+                    <img src={t.escudo_url} alt={`Escudo ${t.nome}`} />
+                  ) : (
+                    <span
+                      className="team-card__sigla"
+                      style={{ color: cd, textShadow: getContrastShadow(cd) }}
+                    >
+                      {(t.abreviacao || "?").toUpperCase()}
+                    </span>
+                  )}
+                </div>
 
-  return (
-    <div className="card team-card">
-      <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
-      <div className="team-card__badge" style={{ "--cd": cd, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}>
-        {time.escudo_url ? (
-          <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
-        ) : (
-          <span className="team-card__sigla" style={{ color: cd, textShadow: getContrastShadow(cd) }}>
-            {(time.abreviacao || "?").toUpperCase()}
-          </span>
-        )}
-      </div>
-      <div className="team-card__info team-card__info--with-badge">
-        <div>
-          <div className="team-card__title">{time.nome}</div>
-          <div className="team-card__subtitle">{time.categoria || "—"}</div>
+                <div className="team-card__info team-card__info--with-badge">
+                  <div>
+                    <div className="team-card__title">{t.nome}</div>
+                    <div className="team-card__subtitle">{t.categoria || "—"}</div>
+                    {t.regiao_id && (
+                      <div className="text-muted" style={{ marginTop: 4 }}>
+                        Região: {regioes.find((r) => r.id === t.regiao_id)?.descricao || "—"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="team-card__dots">
+                    <span className="team-card__dot" style={{ background: c1 }} />
+                    <span className="team-card__dot" style={{ background: c2 }} />
+                    <span className="team-card__dot" style={{ background: cd }} />
+                  </div>
+                </div>
+
+                <div className="row" style={{ gap: 6, padding: "10px 12px 12px" }}>
+                  <Link className="btn btn--sm btn--orange" to={`/times/${t.id}`}>Ver detalhes</Link>
+                  <button className="btn btn--sm btn--muted" onClick={() => handleEdit(t)}>Editar</button>
+                  <button className="btn btn--sm btn--red" onClick={() => handleDelete(t.id)}>Excluir</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <div className="team-card__dots">
-          <span className="team-card__dot" style={{ background: c1 }} />
-          <span className="team-card__dot" style={{ background: c2 }} />
-          <span className="team-card__dot" style={{ background: cd }} />
-        </div>
-      </div>
-      <div className="team-card__actions">
-        <div className="team-card__actions-row">
-          <Link to={`/times/${time.id}`} className="btn btn--orange">Ver detalhes</Link>
-        </div>
-        <div className="team-card__actions-row">
-          <button className="btn btn--orange" onClick={onEdit}>Editar</button>
-          <button className="btn btn--red" onClick={onDelete}>Excluir</button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,19 @@
-// src/pages/CampeonatoEquipes.jsx (atualizado)
+// src/pages/CampeonatoEquipes.jsx — listas no padrão visual simples (ListaCompactaItem), join correto e cores normalizadas
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
+import ListaCompactaItem from "../components/ListaCompactaItem";
+import { USUARIO_ID } from "../config/appUser";
 
-const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+// Normaliza cores para HEX com '#', aceita 3/6 dígitos
+function normalizeHexColor(c, fallback = "#e0e0e0") {
+  if (!c) return fallback;
+  let v = String(c).trim();
+  if (!v) return fallback;
+  if (!v.startsWith("#")) v = `#${v}`;
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : fallback;
+}
 
 export default function CampeonatoEquipes() {
   const { id: campeonatoId } = useParams();
@@ -13,12 +22,14 @@ export default function CampeonatoEquipes() {
   const [loading, setLoading] = useState(true);
   const [campeonato, setCampeonato] = useState(null);
 
-  const [timesUsuario, setTimesUsuario] = useState([]); // todos os times do usuário
-  const [selecionados, setSelecionados] = useState([]); // linhas de campeonato_times com join no time
+  const [timesUsuario, setTimesUsuario] = useState([]);
+  const [selecionados, setSelecionados] = useState([]);
   const [regioes, setRegioes] = useState([]);
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
 
-  // Busca inicial
+  const [temPartidas, setTemPartidas] = useState(false);
+  const [todasPartidasEncerradas, setTodasPartidasEncerradas] = useState(false);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -28,6 +39,7 @@ export default function CampeonatoEquipes() {
         carregarSelecionados(),
         carregarRegioes(),
       ]);
+      await checarEstadoPartidas();
       setLoading(false);
     })();
   }, [campeonatoId]);
@@ -51,14 +63,13 @@ export default function CampeonatoEquipes() {
   }
 
   async function carregarSelecionados() {
-    // pega vínculo + times (cores, nome, abreviação…)
     const { data } = await supabase
       .from("campeonato_times")
       .select(`
         id,
         time_id,
         grupo,
-        times:time_id (
+        time:time_id (
           id, nome, abreviacao, cor1, cor2, cor_detalhe, categoria, regiao_id
         )
       `)
@@ -70,9 +81,25 @@ export default function CampeonatoEquipes() {
     const { data } = await supabase
       .from("regioes")
       .select("id, descricao")
-      .eq("usuario_id", USUARIO_ID)
       .order("descricao", { ascending: true });
     setRegioes(data || []);
+  }
+
+  async function checarEstadoPartidas() {
+    const { count: total } = await supabase
+      .from("partidas")
+      .select("id", { count: "exact", head: true })
+      .eq("campeonato_id", campeonatoId);
+
+    const { count: abertas } = await supabase
+      .from("partidas")
+      .select("id", { count: "exact", head: true })
+      .eq("campeonato_id", campeonatoId)
+      .neq("encerrada", true);
+
+    const tem = (total || 0) > 0;
+    setTemPartidas(tem);
+    setTodasPartidasEncerradas(tem && (abertas || 0) === 0);
   }
 
   const timeIdsSelecionados = useMemo(
@@ -83,7 +110,6 @@ export default function CampeonatoEquipes() {
   const disponiveisFiltrados = useMemo(() => {
     let arr = timesUsuario.filter((t) => !timeIdsSelecionados.has(t.id));
     if (regiaoFiltroId) arr = arr.filter((t) => t.regiao_id === regiaoFiltroId);
-    // ordem alfabética
     arr.sort((a, b) => (a?.nome || "").localeCompare(b?.nome || ""));
     return arr;
   }, [timesUsuario, timeIdsSelecionados, regiaoFiltroId]);
@@ -99,6 +125,13 @@ export default function CampeonatoEquipes() {
       alert("Limite de equipes atingido para este campeonato.");
       return;
     }
+    if (temPartidas) {
+      const okReset = confirm(
+        "Já existem partidas geradas. Todas as partidas serão EXCLUÍDAS e uma nova tabela será gerada ao final. Deseja continuar?"
+      );
+      if (!okReset) return;
+      await resetarPartidas();
+    }
     const { data, error } = await supabase
       .from("campeonato_times")
       .insert([{ campeonato_id: campeonatoId, time_id: time.id, grupo: null }])
@@ -108,15 +141,18 @@ export default function CampeonatoEquipes() {
       alert("❌ Erro ao adicionar equipe.");
       return;
     }
-    setSelecionados((prev) => [
-      ...prev,
-      { ...data, times: time }
-    ]);
+    setSelecionados((prev) => [...prev, { ...data, time }]);
   }
 
   async function removerTime(vinculoId) {
-    const ok = confirm("Remover este time do campeonato?");
-    if (!ok) return;
+    if (temPartidas) {
+      const ok = confirm(
+        "Este campeonato já tem partidas geradas. TODAS as partidas serão excluídas e uma nova tabela será gerada. Deseja prosseguir?"
+      );
+      if (!ok) return;
+      await resetarPartidas();
+    }
+
     const { error } = await supabase
       .from("campeonato_times")
       .delete()
@@ -128,13 +164,43 @@ export default function CampeonatoEquipes() {
     setSelecionados((prev) => prev.filter((s) => s.id !== vinculoId));
   }
 
+  async function resetarPartidas() {
+    await supabase.from("partidas").delete().eq("campeonato_id", campeonatoId);
+    setTemPartidas(false);
+    setTodasPartidasEncerradas(false);
+  }
+
   async function gerarPartidas() {
-    // Aqui entra a chamada que você preferir:
-    // 1) RPC Postgres: await supabase.rpc('gerar_partidas', { campeonato_id: campeonatoId })
-    // 2) Edge Function: await fetch('/functions/v1/gerar_partidas', { method: 'POST', body: JSON.stringify({ campeonatoId }) })
-    // 3) Lado cliente: navegar para tela de partidas e gerar por lá
-    // Por enquanto, vamos apenas navegar para a tela de partidas.
-    navigate(`/campeonatos/${campeonatoId}/partidas`);
+    if (!podeGerarPartidas) {
+      alert("Selecione exatamente o número de equipes configurado para o campeonato.");
+      return;
+    }
+    const { error } = await supabase.rpc("generate_partidas", {
+      p_campeonato_id: campeonatoId,
+      p_limpar_abertas: true,
+    });
+    if (error) {
+      alert("❌ Erro ao gerar partidas.");
+      return;
+    }
+    await checarEstadoPartidas();
+    if ((campeonato?.formato || "") === "mata_mata") {
+      navigate(`/campeonatos/${campeonatoId}/partidas`);
+    } else {
+      navigate(`/campeonatos/${campeonatoId}/classificacao`);
+    }
+  }
+
+  const isMataMata = (campeonato?.formato || "") === "mata_mata";
+  const showVerTabela = !isMataMata && temPartidas;
+  const showVerPartidas = isMataMata && temPartidas;
+
+  if (loading) {
+    return (
+      <div className="container">
+        <div className="card"><div>Carregando…</div></div>
+      </div>
+    );
   }
 
   return (
@@ -151,15 +217,16 @@ export default function CampeonatoEquipes() {
             </div>
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <Link to={`/campeonatos/${campeonatoId}/classificacao`} className="btn btn--muted">Ver tabela</Link>
-            <button
-              className="btn btn--primary"
-              onClick={gerarPartidas}
-              disabled={!podeGerarPartidas}
-              title={podeGerarPartidas ? "Gerar partidas do campeonato" : "Habilita quando o número de equipes selecionadas for igual ao configurado"}
-            >
-              Gerar partidas
-            </button>
+            {showVerTabela && (
+              <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${campeonatoId}/classificacao`)}>
+                Ver tabela
+              </button>
+            )}
+            {showVerPartidas && (
+              <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${campeonatoId}/partidas`)}>
+                Ver partidas
+              </button>
+            )}
             <Link to="/campeonatos" className="btn btn--muted">Voltar</Link>
           </div>
         </div>
@@ -172,11 +239,10 @@ export default function CampeonatoEquipes() {
 
       {/* Duas colunas */}
       <div className="grid grid-2">
-        {/* Coluna: Meus times (disponíveis) */}
+        {/* Coluna: Meus times */}
         <div className="card" style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>Meus times</h3>
-            {/* Filtro de região */}
             <div className="row" style={{ gap: 8 }}>
               <label className="label" style={{ margin: 0 }}>Região:</label>
               <select
@@ -193,37 +259,37 @@ export default function CampeonatoEquipes() {
             </div>
           </div>
 
-          <ul className="list" style={{ marginTop: 10 }}>
-            {loading ? (
-              <li className="list__item"><div>Carregando…</div></li>
-            ) : disponiveisFiltrados.length === 0 ? (
-              <li className="list__item">
-                <div className="text-muted">Nenhum time disponível {regiaoFiltroId ? "nesta região." : "no momento."}</div>
-              </li>
-            ) : (
-              disponiveisFiltrados.map((t) => (
-                <li key={t.id} className="list__item">
-                  <div className="list__left">
-                    <TeamIcon team={{ cor1: t.cor1, cor2: t.cor2, cor_detalhe: t.cor_detalhe }} size={22} title={t.nome} />
-                    <div>
-                      <div className="list__title">{t.nome}</div>
-                      <div className="list__subtitle">
-                        {t.abreviacao || "—"} · {t.categoria || "—"}
-                      </div>
-                    </div>
-                  </div>
+          {disponiveisFiltrados.length === 0 ? (
+            <div className="card" style={{ padding: 14, marginTop: 10 }}>
+              <div className="text-muted">Nenhum time disponível {regiaoFiltroId ? "nesta região." : "no momento."}</div>
+            </div>
+          ) : (
+            <ul className="list card" style={{ marginTop: 10 }}>
+              {disponiveisFiltrados.map((t) => {
+                const icone = (
+                  <TeamIcon
+                    team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
+                    size={24}
+                 />
+                );
+                const titulo = t.nome;
+                const subtitulo = `${t.abreviacao || "—"} · ${t.categoria || "—"}`;
+                const acoes = (
                   <button
-                    className="btn btn--orange"
+                    className="btn btn--sm btn--orange"
                     onClick={() => adicionarTime(t)}
                     disabled={capacidadeAtingida}
                     title={capacidadeAtingida ? "Limite de equipes atingido" : "Adicionar ao campeonato"}
                   >
                     Adicionar
                   </button>
-                </li>
-              ))
-            )}
-          </ul>
+                );
+                return (
+                  <ListaCompactaItem key={t.id} icone={icone} titulo={titulo} subtitulo={subtitulo} acoes={acoes} />
+                );
+              })}
+            </ul>
+          )}
 
           {capacidadeAtingida && (
             <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
@@ -232,42 +298,71 @@ export default function CampeonatoEquipes() {
           )}
         </div>
 
-        {/* Coluna: Selecionados no campeonato */}
+        {/* Coluna: Times do campeonato */}
         <div className="card" style={{ padding: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Times do campeonato ({selecionados.length}/{campeonato?.numero_equipes || 0})</h3>
-          <ul className="list" style={{ marginTop: 10 }}>
-            {loading ? (
-              <li className="list__item"><div>Carregando…</div></li>
-            ) : selecionados.length === 0 ? (
-              <li className="list__item">
-                <div className="text-muted">Nenhum time adicionado ainda.</div>
-              </li>
-            ) : (
-              selecionados
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ marginTop: 0 }}>Times do campeonato ({selecionados.length}/{campeonato?.numero_equipes || 0})</h3>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="btn btn--primary"
+                onClick={gerarPartidas}
+                disabled={!podeGerarPartidas}
+                title={
+                  podeGerarPartidas
+                    ? "Gerar partidas no banco"
+                    : "Habilita quando o número de equipes selecionadas for igual ao configurado"
+                }
+              >
+                Gerar partidas
+              </button>
+            </div>
+          </div>
+
+          {selecionados.length === 0 ? (
+            <div className="card" style={{ padding: 14, marginTop: 10 }}>
+              <div className="text-muted">Nenhum time adicionado ainda.</div>
+            </div>
+          ) : (
+            <ul className="list card" style={{ marginTop: 10 }}>
+              {selecionados
                 .slice()
-                .sort((a, b) => (a?.times?.nome || "").localeCompare(b?.times?.nome || ""))
-                .map((s) => (
-                  <li key={s.id} className="list__item">
-                    <div className="list__left">
-                      <TeamIcon
-                        team={{ cor1: s.times?.cor1, cor2: s.times?.cor2, cor_detalhe: s.times?.cor_detalhe }}
-                        size={22}
-                        title={s.times?.nome}
-                      />
-                      <div>
-                        <div className="list__title">{s.times?.nome || "Time"}</div>
-                        <div className="list__subtitle">
-                          {s.times?.abreviacao || "—"} · {s.times?.categoria || "—"}
-                        </div>
-                      </div>
-                    </div>
-                    <button className="btn btn--red" onClick={() => removerTime(s.id)}>
+                .sort((a, b) => (a?.time?.nome || "").localeCompare(b?.time?.nome || ""))
+                .map((s) => {
+                  const t = s.time || {};
+                  const icone = (
+                    <TeamIcon
+                      team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
+                      size={24}
+                    />
+                  );
+                  const titulo = t.nome || "Time";
+                  const subtitulo = `${t.abreviacao || "—"} · ${t.categoria || "—"}`;
+                  const acoes = (
+                    <button
+                      className="btn btn--sm btn--red"
+                      onClick={() => removerTime(s.id)}
+                      disabled={todasPartidasEncerradas}
+                      title={
+                        todasPartidasEncerradas
+                          ? "Todas as partidas estão encerradas"
+                          : "Remover time do campeonato"
+                      }
+                    >
                       Remover
                     </button>
-                  </li>
-                ))
-            )}
-          </ul>
+                  );
+                  return (
+                    <ListaCompactaItem key={s.id} icone={icone} titulo={titulo} subtitulo={subtitulo} acoes={acoes} />
+                  );
+                })}
+            </ul>
+          )}
+
+          {todasPartidasEncerradas && (
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+              Todas as partidas deste campeonato estão encerradas. Remoções estão desabilitadas.
+            </div>
+          )}
         </div>
       </div>
     </div>

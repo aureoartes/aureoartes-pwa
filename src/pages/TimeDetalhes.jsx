@@ -5,8 +5,8 @@ import supabase from "../lib/supabaseClient";
 import { getContrastShadow } from "../utils/colors";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
-
-const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
+import { USUARIO_ID } from "../config/appUser";
 
 // Hook de responsividade para mobile vertical
 function useIsNarrow(maxWidth = 520) {
@@ -288,23 +288,40 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
                 to={`/campeonatos/${c.id}/partidas`}
                 aria-disabled={!temPartidas}
                 onClick={guard(temPartidas)}
-              >Ver partidas</Link>
+              >
+                Ver partidas
+              </Link>
               <Link
                 className="btn btn--sm btn--muted"
                 to={`/campeonatos/${c.id}/tabela`}
                 aria-disabled={!temClassificacao}
                 onClick={guard(temClassificacao)}
-              >Ver tabela</Link>
+              >
+                Ver tabela
+              </Link>
             </>
           );
 
+          // ⚠️ AQUI dentro do map — `c` está no escopo correto
           const acoesNarrow = (
             <MenuAcoesNarrow
               id={c.id}
               openMenuId={openMenuId}
               setOpenMenuId={setOpenMenuId}
-              temPartidas={temPartidas}
-              temClassificacao={temClassificacao}
+              actions={[
+                {
+                  label: "Ver partidas",
+                  variant: "orange",
+                  to: `/campeonatos/${c.id}/partidas`,
+                  disabled: !temPartidas,
+                },
+                {
+                  label: "Ver tabela",
+                  variant: "muted",
+                  to: `/campeonatos/${c.id}/tabela`,
+                  disabled: !temClassificacao,
+                },
+              ]}
             />
           );
 
@@ -319,94 +336,6 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-function MenuAcoesNarrow({ id, openMenuId, setOpenMenuId, temPartidas, temClassificacao }) {
-  const wrapRef = useRef(null);
-  const btnRef = useRef(null);
-  const isOpen = openMenuId === id;
-
-  useEffect(() => {
-    if (!isOpen) return;
-    function onDocClick(e) {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) setOpenMenuId(null);
-    }
-    function onKey(e) { if (e.key === "Escape") setOpenMenuId(null); }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [isOpen, setOpenMenuId]);
-
-  // Abre pra cima se faltar espaço
-  let openUp = false;
-  let topStyle = "calc(100% + 6px)";
-  if (typeof window !== "undefined" && btnRef.current) {
-    const rect = btnRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const menuHeight = 96; // aprox
-    if (spaceBelow < menuHeight) {
-      openUp = true;
-      topStyle = "auto";
-    }
-  }
-
-  const guard = (enabled) => (e) => { if (!enabled) e.preventDefault(); };
-
-  return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
-      <button
-        ref={btnRef}
-        type="button"
-        className="btn btn--sm btn--muted btn--icon"
-        aria-label="Mais ações"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setOpenMenuId(isOpen ? null : id)}
-        title="mais ações"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      </button>
-
-      {isOpen && (
-        <div
-          role="menu"
-          className="card"
-          style={{
-            position: "absolute",
-            right: 0,
-            top: openUp ? "auto" : topStyle,
-            bottom: openUp ? "calc(100% + 6px)" : "auto",
-            padding: 8,
-            zIndex: 20,
-            minWidth: 160,
-          }}
-        >
-          <div className="row" style={{ gap: 6 }}>
-            <Link
-              role="menuitem"
-              className="btn btn--sm btn--orange"
-              to={`/campeonatos/${id}/partidas`}
-              aria-disabled={!temPartidas}
-              onClick={(e)=>{ guard(temPartidas)(e); if(temPartidas) setOpenMenuId(null); }}
-            >Ver partidas</Link>
-            <Link
-              role="menuitem"
-              className="btn btn--sm btn--muted"
-              to={`/campeonatos/${id}/tabela`}
-              aria-disabled={!temClassificacao}
-              onClick={(e)=>{ guard(temClassificacao)(e); if(temClassificacao) setOpenMenuId(null); }}
-            >Ver tabela</Link>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

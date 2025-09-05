@@ -4,8 +4,8 @@ import { useLocation } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
-
-const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
+import { USUARIO_ID } from "../config/appUser";
 const SEM_EQUIPE = "__none__";
 
 /* Hook para detectar viewport estreita (mobile vertical) */
@@ -26,84 +26,6 @@ function useIsNarrow(maxWidth = 520) {
   return narrow;
 }
 
-/* Menu compacto (mobile) com click-fora/ESC e flip pra cima quando faltar espaço */
-function MenuAcoesNarrow({ onEditar, onExcluir }) {
-  const wrapRef = useRef(null);
-  const btnRef = useRef(null);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e) {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    function onKey(e) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  let openUp = false;
-  let topStyle = "calc(100% + 6px)";
-  if (typeof window !== "undefined" && btnRef.current) {
-    const rect = btnRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const menuHeight = 56; // ~2 botões
-    if (spaceBelow < menuHeight) {
-      openUp = true;
-      topStyle = "auto";
-    }
-  }
-
-  return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
-      <button
-        ref={btnRef}
-        type="button"
-        className="btn btn--sm btn--muted btn--icon"
-        aria-label="Mais ações"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        title="mais ações"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          className="card"
-          style={{
-            position: "absolute",
-            right: 0,
-            top: openUp ? "auto" : topStyle,
-            bottom: openUp ? "calc(100% + 6px)" : "auto",
-            padding: 8,
-            zIndex: 20,
-            minWidth: 160,
-          }}
-        >
-          <div className="row" style={{ gap: 6 }}>
-            <button role="menuitem" className="btn btn--sm btn--orange" onClick={() => { setOpen(false); onEditar(); }}>
-              Editar
-            </button>
-            <button role="menuitem" className="btn btn--sm btn--red" onClick={() => { setOpen(false); onExcluir(); }}>
-              Excluir
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Jogadores() {
   const isNarrow = useIsNarrow(520);
   const location = useLocation();
@@ -118,6 +40,7 @@ export default function Jogadores() {
   // Filtros e ordenação
   const [timeFiltroId, setTimeFiltroId] = useState(timeParam);
   const [ordenacao, setOrdenacao] = useState("nome"); // nome | apelido | clube | numero | posicao
+  const [openMenuId, setOpenMenuId] = useState(null);
 
   // Form cadastro/edição
   const [abrirCadastro, setAbrirCadastro] = useState(false);
@@ -317,9 +240,6 @@ export default function Jogadores() {
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editandoId ? "Editar Jogador" : "Cadastrar Jogador"}</div>
-            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
-              Fechar
-            </button>
           </div>
 
           <div style={{ padding: 12 }}>
@@ -429,8 +349,13 @@ export default function Jogadores() {
 
             const acoesNarrow = (
               <MenuAcoesNarrow
-                onEditar={() => startEditar(j)}
-                onExcluir={() => handleDelete(j.id)}
+                id={j.id}
+                openMenuId={openMenuId}
+                setOpenMenuId={setOpenMenuId}
+                actions={[
+                  { label: "Editar",  variant: "orange", onClick: () => startEditar(j) },
+                  { label: "Excluir", variant: "red",    onClick: () => handleDelete(j.id) },
+                ]}
               />
             );
 

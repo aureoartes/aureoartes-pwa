@@ -8,8 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
-
-const USUARIO_ID = "9a5ccd47-d252-4dbc-8e67-79b3258b199a";
+import { USUARIO_ID } from "../config/appUser";
 
 export default function CampeonatoTabela() {
   const { id: campeonatoId } = useParams();
