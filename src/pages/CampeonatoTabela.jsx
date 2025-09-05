@@ -131,7 +131,7 @@ export default function CampeonatoTabela() {
       {grupos.map(([grupo, lista]) => (
         <div key={grupo} className="card" style={{ padding: 0, marginBottom: 12 }}>
           {camp.formato === "grupos" && (
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", fontWeight: 700 }}>{grupo}</div>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", fontWeight: 700 }}>Grupo {grupo}</div>
           )}
           <div style={{ overflowX: "auto" }}>
             <table className="table tabela-zebrada" style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>

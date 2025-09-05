@@ -1,15 +1,13 @@
-// src/pages/CampeonatoEquipes.jsx — listas no padrão visual simples (ListaCompactaItem), join correto e cores normalizadas
+// src/pages/CampeonatoEquipes.jsx — listas invertidas + filtro por região + TeamIcon padrão
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
-import ListaCompactaItem from "../components/ListaCompactaItem";
 import { USUARIO_ID } from "../config/appUser";
 
-// Normaliza cores para HEX com '#', aceita 3/6 dígitos
 function normalizeHexColor(c, fallback = "#e0e0e0") {
-  if (!c) return fallback;
-  let v = String(c).trim();
+  if (!c || typeof c !== "string") return fallback;
+  let v = c.trim();
   if (!v) return fallback;
   if (!v.startsWith("#")) v = `#${v}`;
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : fallback;
@@ -81,6 +79,7 @@ export default function CampeonatoEquipes() {
     const { data } = await supabase
       .from("regioes")
       .select("id, descricao")
+      .eq("usuario_id", USUARIO_ID)
       .order("descricao", { ascending: true });
     setRegioes(data || []);
   }
@@ -170,11 +169,78 @@ export default function CampeonatoEquipes() {
     setTodasPartidasEncerradas(false);
   }
 
+  // Distribui grupos por sorteio (Fisher–Yates) e balanceamento quociente+resto
+  async function distribuirGruposPorSorteio() {
+    if (!campeonato) return;
+    const formato = (campeonato.formato || "").toLowerCase();
+    if (formato !== "grupos") return; // nada a fazer
+
+    const nGrupos = Number(campeonato.numero_grupos || 0);
+    if (!nGrupos || nGrupos < 1) {
+      throw new Error("numero_grupos_invalido");
+    }
+
+    const arr = [...(selecionados || [])];
+    // Embaralhar (Fisher–Yates)
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+
+    const total = arr.length;
+    const base = Math.floor(total / nGrupos);
+    const resto = total % nGrupos; // grupos 1..resto recebem +1
+
+    let idx = 0;
+    const updates = [];
+    for (let g = 1; g <= nGrupos; g++) {
+      const size = base + (g <= resto ? 1 : 0);
+      for (let k = 0; k < size && idx < total; k++, idx++) {
+        const vinc = arr[idx];
+        if (vinc.grupo !== g) updates.push({ id: vinc.id, grupo: g });
+      }
+    }
+
+    if (updates.length) {
+      await Promise.all(
+        updates.map((u) =>
+          supabase.from("campeonato_times").update({ grupo: u.grupo }).eq("id", u.id)
+        )
+      );
+      // refletir em memória
+      setSelecionados((prev) =>
+        prev.map((s) => {
+          const u = updates.find((x) => x.id === s.id);
+          return u ? { ...s, grupo: u.grupo } : s;
+        })
+      );
+    }
+  }
+
   async function gerarPartidas() {
     if (!podeGerarPartidas) {
       alert("Selecione exatamente o número de equipes configurado para o campeonato.");
       return;
     }
+
+    const formato = (campeonato?.formato || "").toLowerCase();
+
+    // Se grupos, travar se numero_grupos inválido e distribuir antes da RPC
+    if (formato === "grupos") {
+      const nGrupos = Number(campeonato?.numero_grupos || 0);
+      if (!nGrupos || nGrupos < 1) {
+        alert("Defina a quantidade de grupos no cadastro do campeonato antes de gerar partidas.");
+        return;
+      }
+      try {
+        await distribuirGruposPorSorteio();
+      } catch (e) {
+        alert("Não foi possível distribuir os grupos. Verifique a configuração e tente novamente.");
+        return;
+      }
+    }
+
+    // Sempre limpar partidas: p_limpar_abertas = true
     const { error } = await supabase.rpc("generate_partidas", {
       p_campeonato_id: campeonatoId,
       p_limpar_abertas: true,
@@ -183,6 +249,7 @@ export default function CampeonatoEquipes() {
       alert("❌ Erro ao gerar partidas.");
       return;
     }
+
     await checarEstadoPartidas();
     if ((campeonato?.formato || "") === "mata_mata") {
       navigate(`/campeonatos/${campeonatoId}/partidas`);
@@ -190,6 +257,7 @@ export default function CampeonatoEquipes() {
       navigate(`/campeonatos/${campeonatoId}/classificacao`);
     }
   }
+
 
   const isMataMata = (campeonato?.formato || "") === "mata_mata";
   const showVerTabela = !isMataMata && temPartidas;
@@ -237,12 +305,13 @@ export default function CampeonatoEquipes() {
         )}
       </div>
 
-      {/* Duas colunas */}
+      {/* Duas colunas (INVERTIDAS): esquerda = Times do campeonato / direita = Meus times */}
       <div className="grid grid-2">
-        {/* Coluna: Meus times */}
+        {/* Coluna ESQUERDA: Meus times (disponíveis, NÃO vinculados) */}
         <div className="card" style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>Meus times</h3>
+            {/* Filtro de região */}
             <div className="row" style={{ gap: 8 }}>
               <label className="label" style={{ margin: 0 }}>Região:</label>
               <select
@@ -259,37 +328,45 @@ export default function CampeonatoEquipes() {
             </div>
           </div>
 
-          {disponiveisFiltrados.length === 0 ? (
-            <div className="card" style={{ padding: 14, marginTop: 10 }}>
-              <div className="text-muted">Nenhum time disponível {regiaoFiltroId ? "nesta região." : "no momento."}</div>
-            </div>
-          ) : (
-            <ul className="list card" style={{ marginTop: 10 }}>
-              {disponiveisFiltrados.map((t) => {
-                const icone = (
-                  <TeamIcon
-                    team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
-                    size={24}
-                 />
-                );
-                const titulo = t.nome;
-                const subtitulo = `${t.abreviacao || "—"} · ${t.categoria || "—"}`;
-                const acoes = (
+          <ul className="list" style={{ marginTop: 10 }}>
+            {disponiveisFiltrados.length === 0 ? (
+              <li className="list__item">
+                <div className="text-muted">Nenhum time disponível {regiaoFiltroId ? "nesta região." : "no momento."}</div>
+              </li>
+            ) : (
+              disponiveisFiltrados.map((t) => (
+                <li key={t.id} className="list__item">
+                  <div className="list__left">
+                    {/* TeamIcon com cores do time */}
+                    <TeamIcon
+                      team={{
+                        cor1: normalizeHexColor(t.cor1),
+                        cor2: normalizeHexColor(t.cor2, "#9e9e9e"),
+                        cor_detalhe: normalizeHexColor(t.cor_detalhe, "#333333"),
+                      }}
+                      size={22}
+                      title={t.nome}
+                    />
+
+                    <div>
+                      <div className="list__title">{t.nome}</div>
+                      <div className="list__subtitle">
+                        {t.abreviacao || "—"} · {t.categoria || "—"}
+                      </div>
+                    </div>
+                  </div>
                   <button
-                    className="btn btn--sm btn--orange"
+                    className="btn btn--orange"
                     onClick={() => adicionarTime(t)}
                     disabled={capacidadeAtingida}
                     title={capacidadeAtingida ? "Limite de equipes atingido" : "Adicionar ao campeonato"}
                   >
                     Adicionar
                   </button>
-                );
-                return (
-                  <ListaCompactaItem key={t.id} icone={icone} titulo={titulo} subtitulo={subtitulo} acoes={acoes} />
-                );
-              })}
-            </ul>
-          )}
+                </li>
+              ))
+            )}
+          </ul>
 
           {capacidadeAtingida && (
             <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
@@ -298,7 +375,7 @@ export default function CampeonatoEquipes() {
           )}
         </div>
 
-        {/* Coluna: Times do campeonato */}
+        {/* Coluna ESQUERDA: Selecionados */}
         <div className="card" style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ marginTop: 0 }}>Times do campeonato ({selecionados.length}/{campeonato?.numero_equipes || 0})</h3>
@@ -318,45 +395,46 @@ export default function CampeonatoEquipes() {
             </div>
           </div>
 
-          {selecionados.length === 0 ? (
-            <div className="card" style={{ padding: 14, marginTop: 10 }}>
-              <div className="text-muted">Nenhum time adicionado ainda.</div>
-            </div>
-          ) : (
-            <ul className="list card" style={{ marginTop: 10 }}>
-              {selecionados
+          <ul className="list" style={{ marginTop: 10 }}>
+            {selecionados.length === 0 ? (
+              <li className="list__item">
+                <div className="text-muted">Nenhum time adicionado ainda.</div>
+              </li>
+            ) : (
+              selecionados
                 .slice()
                 .sort((a, b) => (a?.time?.nome || "").localeCompare(b?.time?.nome || ""))
-                .map((s) => {
-                  const t = s.time || {};
-                  const icone = (
-                    <TeamIcon
-                      team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
-                      size={24}
-                    />
-                  );
-                  const titulo = t.nome || "Time";
-                  const subtitulo = `${t.abreviacao || "—"} · ${t.categoria || "—"}`;
-                  const acoes = (
+                .map((s) => (
+                  <li key={s.id} className="list__item">
+                    <div className="list__left">
+                      <TeamIcon
+                        team={{
+                          cor1: normalizeHexColor(s.time?.cor1),
+                          cor2: normalizeHexColor(s.time?.cor2, "#9e9e9e"),
+                          cor_detalhe: normalizeHexColor(s.time?.cor_detalhe, "#333333"),
+                        }}
+                        size={22}
+                        title={s.time?.nome}
+                      />
+                      <div>
+                        <div className="list__title">{s.time?.nome || "Time"}</div>
+                        <div className="list__subtitle">
+                          {s.time?.abreviacao || "—"} · {s.time?.categoria || "—"}
+                        </div>
+                      </div>
+                    </div>
                     <button
-                      className="btn btn--sm btn--red"
+                      className="btn btn--red"
                       onClick={() => removerTime(s.id)}
                       disabled={todasPartidasEncerradas}
-                      title={
-                        todasPartidasEncerradas
-                          ? "Todas as partidas estão encerradas"
-                          : "Remover time do campeonato"
-                      }
+                      title={todasPartidasEncerradas ? "Todas as partidas estão encerradas" : "Remover time do campeonato"}
                     >
                       Remover
                     </button>
-                  );
-                  return (
-                    <ListaCompactaItem key={s.id} icone={icone} titulo={titulo} subtitulo={subtitulo} acoes={acoes} />
-                  );
-                })}
-            </ul>
-          )}
+                  </li>
+                ))
+            )}
+          </ul>
 
           {todasPartidasEncerradas && (
             <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
