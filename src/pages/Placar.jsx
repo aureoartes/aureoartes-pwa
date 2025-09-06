@@ -230,30 +230,27 @@ export default function Placar() {
           onInc={() => setGolsA((v) => v + 1)}
           bg={corA1}
           textColor={corADetalhe}
-          textShadow={scoreShadowA}
-          skewRight
+          textShadow={getContrastShadow(corADetalhe)}
         />
-        
+
         <ScoreCardB
           value={golsB}
           onDec={() => setGolsB((v) => Math.max(0, v - 1))}
           onInc={() => setGolsB((v) => v + 1)}
           bg={corB1}
           textColor={corBDetalhe}
-          textShadow={scoreShadowB}
-          skewLeft
+          textShadow={getContrastShadow(corBDetalhe)}
         />
       </div>
 
-      {/* Timer: trapezoidal mais largo, encostado na faixa laranja acima (sem faixa abaixo) */}
-      {fase !== "PEN" && (
-        <div style={{ textAlign: "center", marginTop: 0 }}>
-          <div style={ui.orangeLine} />
-          <div style={ui.timerTrap}>
-            <div style={ui.timerText}>{fmtRelogio(segRestantes)}</div>
-          </div>
+      {/* Logo abaixo do placar, centralizada e encostada na barra laranja */}
+      <div style={{ textAlign: "center", marginTop: -70 }}>
+        <img src={logo} alt="AureoArtes" style={ui.logoBelowImg} />
+        <div style={ui.orangeLineWide} />
+        <div style={ui.timerTrapWide}>
+          <div style={ui.timerText}>{fmtRelogio(segRestantes)}</div>
         </div>
-      )}
+      </div>
 
       {/* Fase + controles */}
       {/* Controles do período centralizados em uma nova seção */}
@@ -398,19 +395,8 @@ function TeamBlock({ team }) {
   );
 }
 
-function ScoreCardA({
-  value,
-  onDec,
-  onInc,
-  bg,
-  textColor,
-  textShadow,
-  skewLeft = false,
-  skewRight = false,
-}) {
-  // Topo mais largo que a base (afunilado para baixo)
-  const clip = "polygon(0% 0, 100% 0, 90% 100%, 0% 100%)";
-
+function ScoreCardA({ value, onDec, onInc, bg, textColor, textShadow }) {
+  const clip = "polygon(8% 0, 100% 0, 90% 100%, 8% 100%)"; // topo > base
   return (
     <div style={ui.scoreShell}>
       <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
@@ -424,19 +410,8 @@ function ScoreCardA({
   );
 }
 
-function ScoreCardB({
-  value,
-  onDec,
-  onInc,
-  bg,
-  textColor,
-  textShadow,
-  skewLeft = false,
-  skewRight = false,
-}) {
-  // Topo mais largo que a base (afunilado para baixo)
-  const clip = "polygon(0% 0, 100% 0, 100% 100%, 10% 100%)";
-
+function ScoreCardB({ value, onDec, onInc, bg, textColor, textShadow }) {
+  const clip = "polygon(8% 0, 100% 0, 100% 100%, 18% 100%)"; // topo > base
   return (
     <div style={ui.scoreShell}>
       <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
@@ -520,38 +495,34 @@ const ui = {
     marginRight: "auto",
   },
   
-  scoresRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "stretch", marginTop: 0 },
-  scoreShell: { display: "flex", justifyContent: "center" },
-
+  scoresRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "stretch", marginTop: 0, marginBottom: 16 },
   scoreBox: {
-    width: "91%",
+    width: "95%",
     color: "#fff",
-    borderRadius: "0 0 18px 18px",
-    padding: 12,
-    minHeight: 196,            // ↑ altura do fundo do placar
+    borderRadius: "0 0 14px 14px",
+    padding: 16,
+    minHeight: 200,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.0), 0 8px 18px rgba(0,0,0,.0)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 8px 18px rgba(0,0,0,.20)",
     backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.08))",
-  },
+    },
+    
+  scoreValue:  { fontSize: 120, lineHeight: 1, fontWeight: 900, textAlign: "center" },
 
-  scoreValue: {
-    fontSize: 126,             // ↑ número do placar
-    lineHeight: 1,
-    fontWeight: 900,
-    textAlign: "center",
-  },
   scoreBtnsWrap: { display: "flex", justifyContent: "center", gap: 8, marginTop: 8 },
 
-  orangeLine: {
+  logoBelowImg: { height: 64, display: "block", margin: "0 auto 0" }, // um pouco maior e centralizada
+
+  orangeLineWide: {
     height: 8,
     background: "#ff7a00",
     margin: 0,
-    marginTop: 14,             // espaço do fundo do placar para a faixa laranja
+    marginTop: 0,             // espaço do fundo do placar para a faixa laranja
   },
 
-  timerTrap: {
+  timerTrapWide: {
     display: "inline-block",
     margin: "0 auto",
     background: "#ff7a00",
