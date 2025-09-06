@@ -28,49 +28,40 @@ export default function Navbar() {
     boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
   };
 
+  // Botão de destaque para o PLACAR (desktop)
+  const placarBtnStyle = {
+    padding: "10px 14px",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#d95500",
+    fontWeight: 800,
+    textDecoration: "none",
+    boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+    transform: "translateZ(0)",
+    transition: "transform 120ms ease, box-shadow 120ms ease",
+  };
+
+  const placarBtnActive = {
+    ...placarBtnStyle,
+    outline: "2px solid rgba(255,255,255,0.6)",
+  };
+
   const containerStyle = {
     position: "sticky",
     top: 0,
     zIndex: 50,
     transition: "all 300ms",
     background: scrolled
-      ? "rgba(255,102,0,0.82)" // laranja com transparência ao rolar
-      : "linear-gradient(90deg, #ff6a00, #ff7e2d)", // fundo laranja padrão
+      ? "rgba(255,102,0,0.82)"
+      : "linear-gradient(90deg, #ff6a00, #ff7e2d)",
     backdropFilter: scrolled ? "blur(6px)" : "none",
     boxShadow: scrolled ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
   };
 
-  const navInner = {
-    maxWidth: 1120,
-    margin: "0 auto",
-    padding: "0 16px",
-  };
-
-  const row = {
-    height: 56,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-  };
-
-  const brand = {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    textDecoration: "none",
-  };
-
-  const brandText = {
-    color: "#fff",
-    fontWeight: 800,
-    letterSpacing: "0.6px",
-    fontSize: 18,
-  };
-
-  const desktopMenu = {
-    display: "none",
-  };
-
+  const navInner = { maxWidth: 1120, margin: "0 auto", padding: "0 16px" };
+  const row = { height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" };
+  const brand = { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" };
+  const brandText = { color: "#fff", fontWeight: 800, letterSpacing: "0.6px", fontSize: 18 };
   const mobileToggle = {
     display: "inline-flex",
     alignItems: "center",
@@ -82,13 +73,7 @@ export default function Navbar() {
     borderRadius: 10,
     cursor: "pointer",
   };
-
-  const mobileMenu = {
-    paddingBottom: 10,
-    display: open ? "block" : "none",
-    animation: "fadeIn 120ms ease-out",
-  };
-
+  const mobileMenu = { paddingBottom: 10, display: open ? "block" : "none", animation: "fadeIn 120ms ease-out" };
   const lojaBtnStyle = {
     marginLeft: 8,
     display: "inline-flex",
@@ -103,9 +88,8 @@ export default function Navbar() {
     textDecoration: "none",
   };
 
-  // media query simples para mostrar menu desktop
+  // media query simples para menu desktop
   const isDesktop = () => window.innerWidth >= 768;
-
   const [showDesktop, setShowDesktop] = useState(isDesktop());
   useEffect(() => {
     const onResize = () => setShowDesktop(isDesktop());
@@ -138,25 +122,20 @@ export default function Navbar() {
           {/* Desktop menu */}
           {showDesktop ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <NavLink
-                to="/"
-                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
-              >
+              <NavLink to="/" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
                 Home
               </NavLink>
 
+              {/* PLACAR com destaque */}
               <NavLink
-                to="/times"
-                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
+                to="/placar"
+                style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}
               >
-                Times
+                Placar
               </NavLink>
 
-              <NavLink
-                to="/jogadores"
-                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
-              >
-                Jogadores
+              <NavLink to="/times" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
+                Times
               </NavLink>
 
               <NavLink
@@ -172,8 +151,7 @@ export default function Navbar() {
                 rel="noopener noreferrer"
                 style={lojaBtnStyle}
               >
-                {/* ícone simples */}
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
                   <path d="M7 7h10v10H7z" stroke="currentColor" strokeWidth="2" />
                   <path d="M13 7h4v4M11 17H7v-4" stroke="currentColor" strokeWidth="2" />
                 </svg>
@@ -182,30 +160,14 @@ export default function Navbar() {
             </div>
           ) : (
             // Mobile hamburger
-            <button
-              aria-label="Abrir menu"
-              onClick={() => setOpen((v) => !v)}
-              style={mobileToggle}
-            >
+            <button aria-label="Abrir menu" onClick={() => setOpen((v) => !v)} style={mobileToggle}>
               {open ? (
-                // X
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M6 6l12 12M18 6L6 18"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               ) : (
-                // ☰
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M4 7h16M4 12h16M4 17h16"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               )}
             </button>
@@ -216,39 +178,28 @@ export default function Navbar() {
         {!showDesktop && (
           <div style={mobileMenu}>
             <div style={{ display: "grid", gap: 6 }}>
-              <NavLink
-                to="/"
-                onClick={() => setOpen(false)}
-                style={({ isActive }) =>
-                  (isActive ? activeLinkStyle : baseLinkStyle)
-                }
-              >
+              <NavLink to="/" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
                 Home
               </NavLink>
+              {/* Placar vem logo depois de Home no mobile */}
               <NavLink
-                to="/times"
+                to="/placar"
                 onClick={() => setOpen(false)}
                 style={({ isActive }) =>
-                  (isActive ? activeLinkStyle : baseLinkStyle)
+                  isActive
+                    ? { ...activeLinkStyle, background: "#fff", color: "#d95500", fontWeight: 800 }
+                    : { ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 800 }
                 }
               >
-                Times
+                Placar
               </NavLink>
-              <NavLink
-                to="/jogadores"
-                onClick={() => setOpen(false)}
-                style={({ isActive }) =>
-                  (isActive ? activeLinkStyle : baseLinkStyle)
-                }
-              >
-                Jogadores
+              <NavLink to="/times" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
+                Times
               </NavLink>
               <NavLink
                 to="/campeonatos"
                 onClick={() => setOpen(false)}
-                style={({ isActive }) =>
-                  (isActive ? activeLinkStyle : baseLinkStyle)
-                }
+                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
               >
                 Campeonatos
               </NavLink>
@@ -257,12 +208,7 @@ export default function Navbar() {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setOpen(false)}
-                style={{
-                  ...lojaBtnStyle,
-                  display: "block",
-                  marginTop: 6,
-                  textAlign: "center",
-                }}
+                style={{ ...lojaBtnStyle, display: "block", marginTop: 6, textAlign: "center" }}
               >
                 Loja
               </a>

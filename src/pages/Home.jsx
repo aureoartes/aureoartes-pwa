@@ -1,88 +1,109 @@
 import { Link } from "react-router-dom";
-import logo from "../assets/logo_aureoartes_mini_q.png";
+import TeamIcon from "../components/TeamIcon";
+import StoreBanner from "../components/StoreBanner";
 
 export default function Home() {
   return (
-    <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#FFF6EF, #FFE7D4)" }}>
-      {/* HERO */}
+    <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#FFF6EF,#FFE7D4)" }}>
+      {/* HERO – tons de laranja, CTA único */}
       <section
         className="page-header"
-        style={{ background: "linear-gradient(135deg, #FF7A00 0%, #FF9D4D 100%)", marginBottom: 0 }}
+        style={{
+          background: "linear-gradient(135deg,#FF8A3D 0%, #FF6A00 45%, #FF9455 100%)",
+          marginBottom: 0,
+          color: "#fff",
+        }}
       >
         <div className="container">
           <div className="grid grid-2">
+            {/* Lado esquerdo: título e CTA do placar */}
             <div>
-              <div className="row" style={{ gap: 10, marginBottom: 8 }}>
-                <img
-                  src={logo}
-                  alt="AUREOARTES"
-                  style={{ width: 48, height: 48, objectFit: "contain", borderRadius: 12, background: "#fff" }}
-                />
-                <h1 className="page-header__title" style={{ margin: 0 }}>AUREOARTES</h1>
-              </div>
-              <h2 style={{ margin: "6px 0 12px", fontSize: 20, fontWeight: 700 }}>
-                Gerencie competições de futebol com simplicidade.
-              </h2>
-              <p className="page-header__subtitle" style={{ maxWidth: 640 }}>
-                Cadastre times e jogadores, organize campeonatos (pontos corridos, grupos ou mata-mata)
-                e acompanhe tudo com placar eletrônico.
+              <h1 className="page-header__title" style={{ marginBottom: 6, color: "#fff" }}>Abra o placar e jogue já</h1>
+              <p className="page-header__subtitle" style={{ maxWidth: 680, color: "#fff" }}>
+                Use agora para um <strong>amistoso</strong> ou inicie a partir de uma <strong>partida do seu campeonato</strong>.
               </p>
               <div className="row" style={{ gap: 10, marginTop: 16 }}>
-                <Link to="/times" className="btn btn--primary">Começar agora</Link>
-                <Link to="/campeonatos" className="btn btn--orange">Criar campeonato</Link>
-                <Link to="/jogadores" className="btn btn--muted">Ver jogadores</Link>
+                <Link to="/placar" className="btn btn--primary" style={{ padding: "12px 18px", fontWeight: 800 }}>
+                  Abrir placar
+                </Link>
               </div>
             </div>
-            <div className="card" style={{ padding: 16, background: "#fff" }}>
-              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Atalhos rápidos</h3>
-              <div className="grid grid-2">
-                <Link to="/times" className="card card--soft" style={{ padding: 16, textDecoration: "none" }}>
-                  <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--text)" }}>Times</div>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>Cores, escudos e elenco.</p>
-                </Link>
-                <Link to="/jogadores" className="card card--soft" style={{ padding: 16, textDecoration: "none" }}>
-                  <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--text)" }}>Jogadores</div>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>Apelidos, posições e números.</p>
-                </Link>
-                <Link to="/campeonatos" className="card card--soft" style={{ padding: 16, textDecoration: "none" }}>
-                  <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--text)" }}>Campeonatos</div>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>Pontos corridos, grupos, mata-mata.</p>
-                </Link>
-                <a
-                  href="https://www.aureoartes.com.br/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="card card--soft"
-                  style={{ padding: 16, textDecoration: "none" }}
-                >
-                  <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--text)" }}>Loja</div>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>Conheça nossos produtos.</p>
-                </a>
+
+            {/* Lado direito: prévia ilustrativa (não clicável) */}
+            <div className="card" style={{ padding: 18, borderColor: "#ffddb8", background: "#fff9f3", color: "#2c1a11" }}>
+              <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 16, letterSpacing: 0.2 }}>Prévia do jogo</div>
+              {/* Brasil x Argentina */}
+              <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div className="row" style={{ alignItems: "center", gap: 8 }}>
+                  <TeamIcon team={{ cor1: "#FFD400", cor2: "#1B5E20", cor_detalhe: "#0D47A1" }} size={28} />
+                  <span style={{ fontWeight: 700 }}>Brasil</span>
+                </div>
+                <span style={{ fontWeight: 800, fontSize: 18 }}>2 x 1</span>
+                <div className="row" style={{ alignItems: "center", gap: 8 }}>
+                  <TeamIcon team={{ cor1: "#FFFFFF", cor2: "#2196F3", cor_detalhe: "#111111" }} size={28} />
+                  <span style={{ fontWeight: 700 }}>Argentina</span>
+                </div>
               </div>
+              <div style={{ fontSize: 12, color: "#7a5643", marginTop: 8 }}>2º tempo • 18:34 • Amistoso</div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Destaques */}
-      <section className="container" style={{ padding: "20px 16px 36px" }}>
-        <div className="card card--soft" style={{ padding: 16 }}>
-          <div className="grid grid-2">
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Organize tudo</div>
-              <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                Cadastre times, jogadores e competições de forma integrada.
-              </div>
-            </div>
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Regras flexíveis</div>
-              <div style={{ fontSize: 13, color: "var(--muted)" }}>
-                Pontos corridos, grupos e mata-mata com prorrogação e pênaltis.
-              </div>
-            </div>
+      {/* LOJA */}
+      <StoreBanner
+      items={[
+        {
+          key: "oferta1",
+          title: "Times artesanais",
+          subtitle: "Coleções clássicas e personalizadas",
+          href: "https://www.aureoartes.com.br/",
+          // imageUrl: "/assets/produtos/times.png", // opcional
+          bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
+          border: "#ffd6ad",
+          badge: "Novidades",
+        },
+        {
+          key: "oferta2",
+          title: "Acessórios",
+          subtitle: "Palhetas, dadinhos e goleiros",
+          href: "https://www.aureoartes.com.br/",
+          // imageUrl: "/assets/produtos/acessorios.png",
+          bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)",
+          border: "#ffddb8",
+        },
+        {
+          key: "oferta3",
+          title: "Promoções da semana",
+          subtitle: "Ofertas por tempo limitado",
+          href: "https://www.aureoartes.com.br/",
+          bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)",
+          border: "#ffcfa6",
+          badge: "Oferta",
+        },
+      ]}
+      intervalMs={6000}
+    />
+    
+      {/* ACESSOS – Times, Campeonatos e Loja */}
+      <section className="container" style={{ padding: "20px 16px 8px" }}>
+        <div className="grid grid-2">
+          {/* Times */}
+          <div className="card card--soft" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Times</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Gerencie escudos, cores e elencos.</div>
+            <Link to="/times" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus times</Link>
+          </div>
+
+          {/* Campeonatos */}
+          <div className="card card--soft" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Campeonatos</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Crie tabelas e acompanhe fases.</div>
+            <Link to="/campeonatos" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus campeonatos</Link>
           </div>
         </div>
       </section>
+
     </div>
   );
 }
