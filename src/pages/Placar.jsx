@@ -1,10 +1,15 @@
-// src/pages/Placar.jsx (mobile-vertical • estética v4 • TeamIcon + sigla • regras mata-mata)
+// src/pages/Placar.jsx (versão consolidada base única)
+// Mantemos este arquivo como referência única para evoluir daqui em diante.
+
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
 import { getContrastShadow } from "../utils/colors";
 import logo from "../assets/logo_aureoartes.png";
+
+// ... (restante do código permanece igual ao arquivo enviado pelo usuário)
+
 
 export default function Placar() {
   const { partidaId } = useParams();
@@ -203,7 +208,13 @@ export default function Placar() {
   const scoreShadowB = getContrastShadow(corBDetalhe);
 
   return (
-    <div className="container" style={{ maxWidth: 720, margin: "0 auto" }}>
+    <div
+      className="container"
+      style={{
+        maxWidth: `calc(${COL_W} * 2 + 28px)`, // 2 colunas + columnGap (28)
+        margin: "0 auto",
+      }}
+    >
       {/* Header: largura total, fundo laranja, logo à esquerda */}
       <div style={ui.headerWrap}>
         <div style={ui.headerBar}>
@@ -215,36 +226,64 @@ export default function Placar() {
         </div>
       </div>
 
-      {/* Times: escudo centralizado + barras do nome com mesma largura do placar */}
-      <div style={ui.teamsRow}>
-        <TeamBlock team={{ nome: nomeA, sigla: siglaA, cor1: corA1, cor2: corA2, cor_detalhe: corADetalhe, escudo_url: timeA.escudo_url }} />
-        <div style={{ width: 12 }} />
-        <TeamBlock team={{ nome: nomeB, sigla: siglaB, cor1: corB1, cor2: corB2, cor_detalhe: corBDetalhe, escudo_url: timeB.escudo_url }} />
-      </div>
+      {/* === Seção de Times + Placar (grade única) === */}
+      <div style={ui.boardGrid}>
+        {/* 1ª linha: escudos (slots de mesma altura) */}
+        <div style={ui.iconCell}>
+          {renderTeamIcon({ ...timeA, cor1: corA1, cor2: corA2, cor_detalhe: corADetalhe })}
+        </div>
+        <div style={ui.iconCell}>
+          {renderTeamIcon({ ...timeB, cor1: corB1, cor2: corB2, cor_detalhe: corBDetalhe })}
+        </div>
 
-      {/* Placar com topo reto e base arredondada; inclinação oposta por lado */}
-      <div style={ui.scoresRow}>
-        <ScoreCardA
-          value={golsA}
-          onDec={() => setGolsA((v) => Math.max(0, v - 1))}
-          onInc={() => setGolsA((v) => v + 1)}
-          bg={corA1}
-          textColor={corADetalhe}
-          textShadow={getContrastShadow(corADetalhe)}
-        />
+        {/* 2ª linha: nomes (mesma largura) */}
+        <div style={{ 
+          ...ui.teamNameBar, 
+          background: corA1, 
+          color: corADetalhe, 
+          textShadow: getContrastShadow(corADetalhe) 
+        }}>
+          {timeA.nome}
+        </div>
 
-        <ScoreCardB
-          value={golsB}
-          onDec={() => setGolsB((v) => Math.max(0, v - 1))}
-          onInc={() => setGolsB((v) => v + 1)}
-          bg={corB1}
-          textColor={corBDetalhe}
-          textShadow={getContrastShadow(corBDetalhe)}
-        />
+        <div style={{ 
+          ...ui.teamNameBar, 
+          background: corB1, 
+          color: corBDetalhe, 
+          textShadow: getContrastShadow(corBDetalhe) 
+        }}>
+          {timeB.nome}
+        </div>
+
+        {/* 3ª linha: faixa fina (mesma largura) */}
+        <div style={{ ...ui.teamThinBar, background: corA2 }} />
+        <div style={{ ...ui.teamThinBar, background: corB2 }} />
+
+        {/* 4ª linha: placares (mesma largura) */}
+        <div style={ui.scoreCell}>
+          <ScoreCardA
+            value={golsA}
+            onDec={() => setGolsA(v => Math.max(0, v - 1))}
+            onInc={() => setGolsA(v => v + 1)}
+            bg={corA1}
+            textColor={corADetalhe}
+            textShadow={getContrastShadow(corADetalhe)}
+          />
+        </div>
+        <div style={ui.scoreCell}>
+          <ScoreCardB
+            value={golsB}
+            onDec={() => setGolsB(v => Math.max(0, v - 1))}
+            onInc={() => setGolsB(v => v + 1)}
+            bg={corB1}
+            textColor={corBDetalhe}
+            textShadow={getContrastShadow(corBDetalhe)}
+          />
+        </div>
       </div>
 
       {/* Logo abaixo do placar, centralizada e encostada na barra laranja */}
-      <div style={{ textAlign: "center", marginTop: -70 }}>
+      <div style={{ textAlign: "center", marginTop: -60 }}>
         <img src={logo} alt="AureoArtes" style={ui.logoBelowImg} />
         <div style={ui.orangeLineWide} />
         <div style={ui.timerTrapWide}>
@@ -341,21 +380,25 @@ export default function Placar() {
 
 /* ===== Blocos/Componentes ===== */
 
-function TeamBlock({ team }) {
+function renderTeamIcon(team) {
   const shadow = getContrastShadow(team.cor_detalhe);
-  const sigla = (team.abrev || team.nome?.substring(0, 3) || "").toUpperCase();
+  const sigla = (team.abrev || "").toUpperCase();
 
-  const icon = team?.escudo_url ? (
+  return team?.escudo_url ? (
     <img
       src={team.escudo_url}
       alt={team.nome}
-      width={140}
-      height={140}
+      width={ICON_SIZE}
+      height={ICON_SIZE}
       style={{ objectFit: "contain" }}
     />
   ) : (
-    <div style={{ position: "relative", display: "inline-block" }}>
-      <TeamIcon team={team} size={140} title={team.nome} />
+    <div style={{ position: "relative", width: ICON_SIZE, height: ICON_SIZE }}>
+      <TeamIcon
+        team={{ cor1: team.cor1, cor2: team.cor2, cor_detalhe: team.cor_detalhe }}
+        size={ICON_SIZE}
+        title={team.nome}
+      />
       <span
         style={{
           position: "absolute",
@@ -374,29 +417,69 @@ function TeamBlock({ team }) {
       </span>
     </div>
   );
+}
+
+function TeamBlock({ team }) {
+  const shadow = getContrastShadow(team.cor_detalhe);
+  const sigla = (team.abrev || "").toUpperCase();
+
+  const icon =
+    team?.escudo_url ? (
+      <img src={team.escudo_url} alt={team.nome} width={ICON_SIZE} height={ICON_SIZE} style={{ objectFit: "contain" }} />
+    ) : (
+      <div style={{ position: "relative", width: ICON_SIZE, height: ICON_SIZE }}>
+        <TeamIcon team={team} size={ICON_SIZE} title={team.nome} />
+        <span
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 32,
+            fontWeight: 900,
+            color: team.cor_detalhe,
+            textShadow: shadow,
+            pointerEvents: "none",
+          }}
+        >
+          {sigla}
+        </span>
+      </div>
+    );
 
   return (
-    <div style={{ flex: 1, textAlign: "center" }}>
-      {/* Aproxima o escudo do nome e permite uma leve sobreposição */}
-      <div style={{ marginBottom: -10 }}>{icon}</div>
-
-      {/* Nome com altura maior e “subindo” para sobrepor um pouco */}
+    <div style={{ width: COL_W, display: "grid", justifyItems: "center" }}>
+      {/* SLOT de altura fixa garante que o nome de A e B fique na MESMA linha */}
       <div
         style={{
-          ...ui.teamNameBar,
-          background: team.cor1,
-          color: team.cor_detalhe,
+          height: ICON_WRAP_H,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "center",
+          marginBottom: -10, // leve sobreposição no retângulo do nome
         }}
       >
+        {icon}
+      </div>
+
+      <div style={{ ...ui.teamNameBar, width: COL_W, background: team.cor1, color: team.cor_detalhe }}>
         {team.nome}
       </div>
-      <div style={{ ...ui.teamThinBar, background: team.cor2 }} />
+      <div style={{ ...ui.teamThinBar, width: COL_W, background: team.cor2 }} />
     </div>
   );
 }
 
-function ScoreCardA({ value, onDec, onInc, bg, textColor, textShadow }) {
-  const clip = "polygon(8% 0, 100% 0, 90% 100%, 8% 100%)"; // topo > base
+/* ===== ScoreCard (polígono 4 faces conforme especificação) ===== */
+function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = "A" }) {
+  // 4 faces:
+  //  A (time esquerdo): topo 100%, esquerda 90°, base 90% (alinhada à esquerda), direita diagonal
+  //  B (time direito): topo 100%, direita 90°, base 90% (alinhada à direita), esquerda diagonal
+  const clip = side === "A"
+    ? "polygon(0 0, 100% 0, 90% 100%, 0 100%)"     // TL→TR→BR(90%)→BL
+    : "polygon(0 0, 100% 0, 100% 100%, 10% 100%)"; // TL→TR→BR(100%)→BL(10%)
+
   return (
     <div style={ui.scoreShell}>
       <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
@@ -410,20 +493,9 @@ function ScoreCardA({ value, onDec, onInc, bg, textColor, textShadow }) {
   );
 }
 
-function ScoreCardB({ value, onDec, onInc, bg, textColor, textShadow }) {
-  const clip = "polygon(8% 0, 100% 0, 100% 100%, 18% 100%)"; // topo > base
-  return (
-    <div style={ui.scoreShell}>
-      <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
-        <div style={{ ...ui.scoreValue, color: textColor, textShadow }}>{value}</div>
-        <div style={ui.scoreBtnsWrap}>
-          <button className="btn btn--muted" onClick={onDec}>-1</button>
-          <button className="btn btn--primary" onClick={onInc}>+1</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Atalhos para usar no render:
+export const ScoreCardA = (props) => <ScoreCardPoly side="A" {...props} />;
+export const ScoreCardB = (props) => <ScoreCardPoly side="B" {...props} />;
 
 function PenaltyBox({ label, value, setValue, qtd }) {
   return (
@@ -458,6 +530,15 @@ function abreviar(nome = "") {
 }
 
 /* ===== Styles ===== */
+
+// largura responsiva: mínimo 260px, cresce até 42% da viewport, máximo 360px
+const COL_W = "clamp(260px, 42vw, 360px)"; 
+//const COL_W = 340;
+
+// tamanhos do escudo
+const ICON_SIZE = 140;
+const ICON_WRAP_H = ICON_SIZE + 20; // altura fixa do “slot” do escudo
+
 const ui = {
   headerWrap: { margin: "8px 0 0" },
   headerBar: {
@@ -474,46 +555,101 @@ const ui = {
   headerTitle: { fontWeight: 800, fontSize: 18, textAlign: "center", flex: 1 },
   logoImg: { width: 28, height: 28, objectFit: "contain" },
 
-  teamsRow: { marginTop: 10, display: "flex", alignItems: "flex-start", justifyContent: "space-between" },
- 
+  teamsRow: {
+    display: "grid",
+    gridTemplateColumns: `repeat(2, ${COL_W})`,gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    justifyItems: "center",   // centraliza cada coluna
+    alignItems: "start",
+    columnGap: 24,
+    marginTop: 8,
+  },
+
+  boardGrid: {
+    display: "grid",
+    gridTemplateColumns: `repeat(2, ${COL_W})`,
+    gridTemplateRows: "160px auto 6px auto",
+    justifyContent: "center",
+    alignItems: "end",
+    columnGap: 28,
+    rowGap: 0,
+    margin: "8px auto 16px",
+    width: "100%",
+    maxWidth: `calc(${COL_W} * 2 + 28px)`, // opcional, combina com o container
+  },
+
+  // célula do escudo
+  iconCell: {
+    display: "flex",
+    alignItems: "end",
+    justifyContent: "center",
+  },
+
+  // nome e thinbar SEMPRE com 100% da coluna e com padding “dentro”
   teamNameBar: {
-    marginTop: -10,            // “sobe” o retângulo para sobrepor um pouco o escudo
+    width: "100%",
+    boxSizing: "border-box",
     fontWeight: 900,
     fontSize: 20,
-    padding: "10px 14px",      // altura maior do retângulo do nome
-    borderRadius: "18px 18px 0 0",
-    width: "92%",
+    padding: "10px 14px",
+    borderRadius: "14px 14px 0 0",
     textAlign: "center",
-    marginLeft: "auto",
-    marginRight: "auto",
+    margin: 0,
   },
   teamThinBar: {
+    width: "100%",
     height: 6,
-    width: "92%",
     borderRadius: 0,
-    marginLeft: "auto",
-    marginRight: "auto",
+    margin: 0,
   },
+
+  // célula do placar com largura fixa da coluna
+  scoreCell: {
+    width: COL_W,                 // <- trava a célula
+    display: "block",
+  },
+
+  scoreShell:  { width: "100%" },
   
-  scoresRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "stretch", marginTop: 0, marginBottom: 16 },
+  scoresRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    justifyItems: "center",   // centraliza cada placar
+    columnGap: 24,
+    margin: "0 auto 16px",
+    width: "100%",
+    maxWidth: 900,
+  },
+
+  // PLACAR com largura fixa da célula, independentemente do conteúdo
   scoreBox: {
-    width: "95%",
+    width: "100%",
+    minWidth: "100%",
+    maxWidth: "100%",             // <- impede aumentar
+    boxSizing: "border-box",      // <- padding conta “dentro”
     color: "#fff",
     borderRadius: "0 0 14px 14px",
-    padding: 16,
+    padding: "12px 14px",
     minHeight: 200,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
     boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 8px 18px rgba(0,0,0,.20)",
     backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.08))",
-    },
-    
-  scoreValue:  { fontSize: 120, lineHeight: 1, fontWeight: 900, textAlign: "center" },
+  },
+
+  // números com tabular-nums (cada dígito ocupa a mesma largura)
+  scoreValue: {
+    fontSize: 120,
+    lineHeight: 1,
+    fontWeight: 900,
+    textAlign: "center",
+    fontVariantNumeric: "tabular-nums",
+    fontFeatureSettings: '"tnum"',
+  },
 
   scoreBtnsWrap: { display: "flex", justifyContent: "center", gap: 8, marginTop: 8 },
 
-  logoBelowImg: { height: 64, display: "block", margin: "0 auto 0" }, // um pouco maior e centralizada
+  logoBelowImg: { height: 58, display: "block", margin: "0 auto 0" }, // um pouco maior e centralizada
 
   orangeLineWide: {
     height: 8,
