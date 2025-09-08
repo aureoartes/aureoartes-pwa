@@ -1,14 +1,13 @@
 // src/pages/Placar.jsx (versão consolidada base única)
 // Mantemos este arquivo como referência única para evoluir daqui em diante.
 
+
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
 import { getContrastShadow } from "../utils/colors";
 import logo from "../assets/logo_aureoartes.png";
-
-// ... (restante do código permanece igual ao arquivo enviado pelo usuário)
 
 
 export default function Placar() {
@@ -36,16 +35,20 @@ export default function Placar() {
 
   const [penA, setPenA] = useState(0);
   const [penB, setPenB] = useState(0);
+  const [penAMiss, setPenAMiss] = useState(0);
+  const [penBMiss, setPenBMiss] = useState(0);
 
   const [local, setLocal] = useState("");
   const [dataHora, setDataHora] = useState("");
 
-  // Mata‑mata
+  const [encerrada, setEncerrada] = useState(false);
+
+  // Mata-mata
   const [isMataMata, setIsMataMata] = useState(false);
-  const [perna, setPerna] = useState(null); // 1 | 2 | null (jogo único)
+  const [perna, setPerna] = useState(null);
   const [chaveId, setChaveId] = useState(null);
-  const [etapa, setEtapa] = useState(null); // grupos | pontos_corridos | eliminatoria
-  const [ida, setIda] = useState(null); // partida de ida (quando estamos na volta)
+  const [etapa, setEtapa] = useState(null);
+  const [ida, setIda] = useState(null);
 
   const intervalRef = useRef(null);
 
@@ -105,24 +108,20 @@ export default function Placar() {
     if (!rodando) { clearInterval(intervalRef.current); return; }
     intervalRef.current = setInterval(() => {
       setSegRestantes((s) => {
-        if (s <= 1) { clearInterval(intervalRef.current); if (!isAvulso) avancarAutomaticoAposFim(); }
+        if (s <= 1) { clearInterval(intervalRef.current); setRodando(false); }
         return Math.max(0, s - 1);
       });
     }, 1000);
     return () => clearInterval(intervalRef.current);
   }, [rodando]);
 
-  // ===== Helpers e regras =====
-  function setFaseComDuracao(f) {
-    setFase(f);
-    if (f === "1T" || f === "2T") setSegRestantes(durTempo * 60);
-    else if (f === "PR1" || f === "PR2") setSegRestantes(durProrro * 60);
-    else if (f === "PEN") setSegRestantes(0);
-    setRodando(false);
+  // Função utilitária para mesclar cores no modo avulso
+  function withColors(team, cor1, cor2, cor_detalhe) {
+  return { ...team, cor1, cor2, cor_detalhe };
   }
-  const labelFase = (f) => ({ "1T": "1º Tempo", "2T": "2º Tempo", PR1: "Prorrogação — 1º Tempo", PR2: "Prorrogação — 2º Tempo", PEN: "Pênaltis" }[f] || f);
-  const labelBotaoEncerrar = () => ({ "1T": "Encerrar 1º tempo", "2T": "Encerrar 2º tempo", PR1: "Encerrar PR1", PR2: "Encerrar PR2" }[fase] || "Encerrar período");
 
+  // ===== Helpers e regras =====
+  
   const [corA1, setCorA1] = useState("#e41010");
   const [corA2, setCorA2] = useState("#101010");
   const [corADetalhe, setCorADetalhe] = useState("#FFFFFF");
@@ -149,7 +148,7 @@ export default function Placar() {
     return false;
   };
 
-  function avancarAutomaticoAposFim() { setRodando(false); encerrarPeriodo(false); }
+  //function avancarAutomaticoAposFim() { setRodando(false); encerrarPeriodo(false); }
 
   function resetPeriodo() {
     if (fase === "1T" || fase === "2T") setSegRestantes(durTempo * 60);
@@ -157,221 +156,193 @@ export default function Placar() {
     setRodando(false);
   }
 
+  function encerrarPeriodo(perguntar = true) {
+    if (perguntar) {
+      const ok = confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`);
+      if (!ok) return;
+    }
+    setRodando(false);
+  }
+
   async function salvarVinculado(encerrar = false) {
-    if (isAvulso || !partida) return;
+    if (isAvulso || !partidaId) return;
     const payload = {
       gols_time_a: golsA,
       gols_time_b: golsB,
-      prorrogacao: usaProrrogacao && (fase === "PR1" || fase === "PR2" || (fase === "2T" && podeProrrogacaoApos2T())),
       penaltis_time_a: fase === "PEN" ? penA : null,
       penaltis_time_b: fase === "PEN" ? penB : null,
+      penmiss_time_a: fase === "PEN" ? penAMiss : null,
+      penmiss_time_b: fase === "PEN" ? penBMiss : null,
       local: local || null,
       data_hora: dataHora ? new Date(dataHora).toISOString() : null,
       encerrada: !!encerrar,
     };
-    const { error } = await supabase.from("partidas").update(payload).eq("id", partida.id);
+    const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
     if (error) { alert("❌ Erro ao salvar partida"); return; }
-    if (encerrar) { alert("✅ Partida encerrada e salva!"); navigate(`/campeonatos/${partida.campeonato_id}/partidas`); }
-    else { alert("✅ Parciais salvas!"); }
+    if (encerrar) {
+      setEncerrada(true);
+      alert("✅ Partida encerrada e salva!");
+    } else {
+      alert("✅ Parciais salvas!");
+    }
   }
 
+  function labelFaseAmigavel(f) {
+    switch (f) {
+      case "1T": return "1º tempo";
+      case "2T": return "2º tempo";
+      case "PR1": return "1ª prorrogação";
+      case "PR2": return "2ª prorrogação";
+      case "PEN": return "pênaltis";
+      default: return f || "";
+    }
+  }
+
+  // ===== Ajusta fase e carrega duração (preferindo as configs do campeonato) =====
+  function setFaseComDuracao(novaFase) {
+    setFase(novaFase);
+
+    const durTempoCamp  = Number(camp?.duracao_tempo_min ?? camp?.duracao_tempo) || durTempo || 45; // min
+    const durProrroCamp = Number(camp?.duracao_prorrogacao_min ?? camp?.duracao_prorrogacao) || durProrro || 15; // min
+
+    const minutos = (novaFase === "PR1" || novaFase === "PR2") ? durProrroCamp : durTempoCamp;
+    const segundos = Math.max(1, Math.round(minutos * 60));
+    setSegRestantes(segundos);
+
+    // Marcar prorrogação no banco quando entrar em PR1 (se aplicável)
+    if (novaFase === "PR1" && typeof supabase !== "undefined" && partidaId) {
+      try {
+        supabase.from("partidas").update({ prorrogacao: true }).eq("id", partidaId);
+      } catch (e) {
+        console.warn("Falha ao marcar prorrogação:", e);
+      }
+    }
+  } 
+  // ===== Encerrar período (com desempate) =====
   function encerrarPeriodo(perguntar = true) {
-    if (perguntar) { const ok = confirm(`Confirma encerrar ${labelFase(fase)}?`); if (!ok) return; }
+    if (perguntar) {
+      const ok = confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`);
+      if (!ok) return;
+    }
+
+    // 1º tempo -> 2º tempo
     if (fase === "1T") { setFaseComDuracao("2T"); return; }
+
+    // Encerrando 2º tempo
     if (fase === "2T") {
       if (isMataMata) {
-        if (podeProrrogacaoApos2T()) { setFaseComDuracao("PR1"); return; }
-        if (!camp?.prorrogacao) {
-          const jogoUnicoEmpatado = !perna && empateJogo();
-          const voltaAgregadoEmpatado = perna === 2 && agregadoEmpatadoAoFimDo2T();
-          if (jogoUnicoEmpatado || voltaAgregadoEmpatado) { setFase("PEN"); return; }
+        const jogoUnico = (camp?.ida_volta === false || camp?.ida_volta === 0 || camp?.ida_volta === "false");
+        const precisaDecidir = jogoUnico ? (golsA === golsB) : (perna === 2 && agregadoEmpatadoAoFimDo2T());
+        if (precisaDecidir) {
+          if (camp?.prorrogacao) { setFaseComDuracao("PR1"); return; }
+          const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
+          setQtdPen(penReg); setFase("PEN"); setRodando(false); return;
         }
-        salvarVinculado(true); return;
+        if (typeof salvarVinculado === "function") salvarVinculado(true); else setRodando(false);
+        return;
       }
-      // pontos corridos/grupos → encerra automaticamente
-      salvarVinculado(true); return;
+      // Avulso e outras fases
+      if (empateJogo() && usaProrrogacao) { setFaseComDuracao("PR1"); return; }
+      if (empateJogo() && !usaProrrogacao) { const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5; setQtdPen(penReg); setFase("PEN"); setRodando(false); return; }
+      setRodando(false); return;
     }
+
+    // PR1 -> PR2
     if (fase === "PR1") { setFaseComDuracao("PR2"); return; }
+
+    // Fim PR2
     if (fase === "PR2") {
-      if (empateJogo()) { setFase("PEN"); return; }
-      salvarVinculado(true); return;
+      if (empateJogo()) { const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5; setQtdPen(penReg); setFase("PEN"); setRodando(false); return; }
+      if (isMataMata && typeof salvarVinculado === "function") { salvarVinculado(true); return; }
+      setRodando(false); return;
     }
   }
 
+  // ===== Util =====
+  const fmt = (t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+
   // ===== Render =====
-  const fmtRelogio = (sec) => `${String(Math.floor(sec/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
-  const nomeA = isAvulso ? nomeLivreA : timeA.nome;
-  const nomeB = isAvulso ? nomeLivreB : timeB.nome;
-  const siglaA = (timeA.abrev || abreviar(nomeA)).toUpperCase();
-  const siglaB = (timeB.abrev || abreviar(nomeB)).toUpperCase();
-  const scoreShadowA = getContrastShadow(corADetalhe);
-  const scoreShadowB = getContrastShadow(corBDetalhe);
-
   return (
-    <div
-      className="container"
-      style={{
-        maxWidth: `calc(${COL_W} * 2 + 28px)`, // 2 colunas + columnGap (28)
-        margin: "0 auto",
-      }}
-    >
-      {/* Header: largura total, fundo laranja, logo à esquerda */}
-      <div style={ui.headerWrap}>
-        <div style={ui.headerBar}>
-          <div style={ui.headerLeft}>
-            <img src={logo} alt="AureoArtes" style={ui.logoImg} />
-          </div>
-          <div style={ui.headerTitle}>{isAvulso ? "Amistoso" : (camp ? camp.nome : "")}</div>
-          <div style={{ width: 40 }} />
-        </div>
-      </div>
-
-      {/* === Seção de Times + Placar (grade única) === */}
+    <div className="container" style={{ maxWidth: `calc(${COL_W} * 2 + ${GAP * 2}px)`, margin: "0 auto", padding: "0 8px" }}>
+      {/* === Times + Placar === */}
       <div style={ui.boardGrid}>
-        {/* 1ª linha: escudos (slots de mesma altura) */}
-        <div style={ui.iconCell}>
-          {renderTeamIcon({ ...timeA, cor1: corA1, cor2: corA2, cor_detalhe: corADetalhe })}
-        </div>
-        <div style={ui.iconCell}>
-          {renderTeamIcon({ ...timeB, cor1: corB1, cor2: corB2, cor_detalhe: corBDetalhe })}
-        </div>
+        {/* Escudos */}
+        <div style={ui.iconCell}>{renderTeamIcon(withColors(timeA, corA1, corA2, corADetalhe))}</div>
+        <div style={ui.iconCell}>{renderTeamIcon(withColors(timeB, corB1, corB2, corBDetalhe))}</div>
 
-        {/* 2ª linha: nomes (mesma largura) */}
-        <div style={{ 
-          ...ui.teamNameBar, 
-          background: corA1, 
-          color: corADetalhe, 
-          textShadow: getContrastShadow(corADetalhe) 
-        }}>
-          {timeA.nome}
-        </div>
+        {/* Nomes */}
+        <div style={{ ...ui.teamNameBar, background: corA1, color: corADetalhe, textShadow: getContrastShadow(corADetalhe) }}>{timeA.nome}</div>
+        <div style={{ ...ui.teamNameBar, background: corB1, color: corBDetalhe, textShadow: getContrastShadow(corBDetalhe) }}>{timeB.nome}</div>
 
-        <div style={{ 
-          ...ui.teamNameBar, 
-          background: corB1, 
-          color: corBDetalhe, 
-          textShadow: getContrastShadow(corBDetalhe) 
-        }}>
-          {timeB.nome}
-        </div>
-
-        {/* 3ª linha: faixa fina (mesma largura) */}
+        {/* Faixa fina */}
         <div style={{ ...ui.teamThinBar, background: corA2 }} />
         <div style={{ ...ui.teamThinBar, background: corB2 }} />
 
-        {/* 4ª linha: placares (mesma largura) */}
+        {/* Placar */}
         <div style={ui.scoreCell}>
-          <ScoreCardA
-            value={golsA}
-            onDec={() => setGolsA(v => Math.max(0, v - 1))}
-            onInc={() => setGolsA(v => v + 1)}
-            bg={corA1}
-            textColor={corADetalhe}
-            textShadow={getContrastShadow(corADetalhe)}
-          />
+          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} />
         </div>
         <div style={ui.scoreCell}>
-          <ScoreCardB
-            value={golsB}
-            onDec={() => setGolsB(v => Math.max(0, v - 1))}
-            onInc={() => setGolsB(v => v + 1)}
-            bg={corB1}
-            textColor={corBDetalhe}
-            textShadow={getContrastShadow(corBDetalhe)}
-          />
+          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} />
         </div>
       </div>
 
-      {/* Logo abaixo do placar, centralizada e encostada na barra laranja */}
-      <div style={{ textAlign: "center", marginTop: -60 }}>
+      {/* Faixa e cronômetro */}
+      {/* Logo acima da faixa do cronometro */}
+      <div style={{ marginTop: -60}}>
         <img src={logo} alt="AureoArtes" style={ui.logoBelowImg} />
-        <div style={ui.orangeLineWide} />
-        <div style={ui.timerTrapWide}>
-          <div style={ui.timerText}>{fmtRelogio(segRestantes)}</div>
-        </div>
       </div>
+      <div style={ui.orangeLineWide} />
+      <div style={ui.timerTrapWide}><div style={ui.timerText}>{fmt(segRestantes)}</div></div>
 
-      {/* Fase + controles */}
-      {/* Controles do período centralizados em uma nova seção */}
-      <div className="card" style={{ padding: 14, marginTop: 12, textAlign: "center" }}>
-        {!isAvulso ? (
-          <div className="badge" style={{ margin: "0 auto 10px" }}>{labelFase(fase)}</div>
-        ) : (
-          <select
-            className="select"
-            value={fase}
-            onChange={(e) => setFaseComDuracao(e.target.value)}
-            style={{ margin: "0 auto 10px" }}
-          >
-            <option value="1T">1º Tempo</option>
-            <option value="2T">2º Tempo</option>
-            {usaProrrogacao && <option value="PR1">Prorrogação 1</option>}
-            {usaProrrogacao && <option value="PR2">Prorrogação 2</option>}
-            <option value="PEN">Pênaltis</option>
-          </select>
-        )}
-
+      {/* Seção Período */}
+      <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center" }}>
+        <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 22, color: "#ff7a00" }}>{labelFaseAmigavel(fase)}</div>
         <div className="row" style={{ gap: 8, justifyContent: "center" }}>
-          {!rodando ? (
-            <button className="btn btn--primary" onClick={() => setRodando(true)}>Iniciar</button>
-          ) : (
-            <button className="btn btn--muted" onClick={() => setRodando(false)}>Pausar</button>
-          )}
-
-          {!isAvulso ? (
-            <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)}>
-              {labelBotaoEncerrar()}
-            </button>
-          ) : (
-            <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
-          )}
+          <button className="btn btn--primary" disabled={rodando || encerrada} onClick={() => setRodando(true)}>Iniciar</button>
+          <button className="btn btn--muted" disabled={!rodando || encerrada} onClick={() => setRodando(false)}>Pausar</button>
+          <button className="btn btn--muted" disabled={encerrada} onClick={resetPeriodo}>Reiniciar período</button>
+          <button className="btn btn--muted" disabled={encerrada} onClick={() => encerrarPeriodo(true)}>Encerrar período</button>
         </div>
       </div>
 
-      {/* Pênaltis */}
+      {/* Seção Pênaltis */}
       {fase === "PEN" && (
-        <div className="card" style={{ padding: 14, marginTop: 8 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <PenaltyBox label="Pênaltis A" value={penA} setValue={setPenA} qtd={qtdPen} />
-            <div className="badge">{qtdPen} regulares</div>
-            <PenaltyBox label="Pênaltis B" value={penB} setValue={setPenB} qtd={qtdPen} />
+        <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center" }}>
+          <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 22, color: "#ff7a00" }}>
+            Pênaltis - Cobranças regulares {qtdPen}
+          </div>
+          <div className="row" style={{ justifyContent: "space-around", marginTop: 12 }}>
+            <div>
+              <div>{timeA.nome}</div>
+              <div>✅ {penA} &nbsp;&nbsp; ❌ {penAMiss}</div>
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button onClick={() => setPenA(p => p + 1)} disabled={encerrada}>✅</button>
+                <button onClick={() => setPenAMiss(p => p + 1)} disabled={encerrada}>❌</button>
+              </div>
+            </div>
+            <div>
+              <div>{timeB.nome}</div>
+              <div>✅ {penB} &nbsp;&nbsp; ❌ {penBMiss}</div>
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button onClick={() => setPenB(p => p + 1)} disabled={encerrada}>✅</button>
+                <button onClick={() => setPenBMiss(p => p + 1)} disabled={encerrada}>❌</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Meta / salvar */}
-      <div className="card" style={{ padding: 14, marginTop: 8 }}>
-        {!isAvulso ? (
-          <div className="grid grid-2">
-            <div className="field"><label className="label">Local</label><input className="input" value={local} onChange={(e) => setLocal(e.target.value)} /></div>
-            <div className="field"><label className="label">Data e Hora</label><input className="input" type="datetime-local" value={dataHora} onChange={(e) => setDataHora(e.target.value)} /></div>
-          </div>
-        ) : (
-          <div className="grid grid-4" style={{ marginBottom: 8 }}>
-            <ColorInput label="A cor1" value={corA1} onChange={setCorA1} />
-            <ColorInput label="A cor2" value={corA2} onChange={setCorA2} />
-            <ColorInput label="A detalhe" value={corADetalhe} onChange={setCorADetalhe} />
-            <div />
-            <ColorInput label="B cor1" value={corB1} onChange={setCorB1} />
-            <ColorInput label="B cor2" value={corB2} onChange={setCorB2} />
-            <ColorInput label="B detalhe" value={corBDetalhe} onChange={setCorBDetalhe} />
-          </div>
-        )}
-
-        <div className="row" style={{ gap: 8, marginTop: 12 }}>
-          {!isAvulso ? (
-            <>
-              <button className="btn btn--orange" onClick={() => salvarVinculado(false)}>Salvar parciais</button>
-              <button className="btn btn--red" onClick={() => salvarVinculado(true)}>Encerrar partida</button>
-            </>
-          ) : (
-            <button className="btn btn--orange" onClick={() => { setGolsA(0); setGolsB(0); setPenA(0); setPenB(0); setFaseComDuracao("1T"); }}>Limpar</button>
-          )}
-
-          {!isAvulso && partida && (
-            <Link to={`/campeonatos/${partida.campeonato_id}/partidas`} className="btn btn--muted">Voltar</Link>
-          )}
-          {isAvulso && <Link to="/" className="btn btn--muted">Início</Link>}
+      {/* Seção Local/DataHora + Controles */}
+      <div className="card" style={{ padding: 16, marginTop: 20 }}>
+        <div className="row" style={{ gap: 12, marginBottom: 12 }}>
+          <input type="text" className="input" placeholder="Local" value={local} onChange={e => setLocal(e.target.value)} />
+          <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} />
+        </div>
+        <div className="row" style={{ gap: 12, justifyContent: "center" }}>
+          <button className="btn btn--danger" onClick={() => window.location.reload()}>Reiniciar Partida</button>
+          <button className="btn btn--danger" onClick={() => salvarVinculado(true)}>Encerrar Partida</button>
+          <button className="btn btn--muted" onClick={() => navigate(-1)}>Voltar</button>
         </div>
       </div>
     </div>
@@ -383,22 +354,11 @@ export default function Placar() {
 function renderTeamIcon(team) {
   const shadow = getContrastShadow(team.cor_detalhe);
   const sigla = (team.abrev || "").toUpperCase();
-
   return team?.escudo_url ? (
-    <img
-      src={team.escudo_url}
-      alt={team.nome}
-      width={ICON_SIZE}
-      height={ICON_SIZE}
-      style={{ objectFit: "contain" }}
-    />
+    <img src={team.escudo_url} alt={team.nome} width={ICON_SIZE} height={ICON_SIZE} style={{ objectFit: "contain" }} />
   ) : (
     <div style={{ position: "relative", width: ICON_SIZE, height: ICON_SIZE }}>
-      <TeamIcon
-        team={{ cor1: team.cor1, cor2: team.cor2, cor_detalhe: team.cor_detalhe }}
-        size={ICON_SIZE}
-        title={team.nome}
-      />
+      <TeamIcon team={{ cor1: team.cor1, cor2: team.cor2, cor_detalhe: team.cor_detalhe }} size={ICON_SIZE} title={team.nome} />
       <span
         style={{
           position: "absolute",
@@ -494,8 +454,8 @@ function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = 
 }
 
 // Atalhos para usar no render:
-export const ScoreCardA = (props) => <ScoreCardPoly side="A" {...props} />;
-export const ScoreCardB = (props) => <ScoreCardPoly side="B" {...props} />;
+const ScoreCardA = (props) => <ScoreCardPoly side="A" {...props} />;
+const ScoreCardB = (props) => <ScoreCardPoly side="B" {...props} />;
 
 function PenaltyBox({ label, value, setValue, qtd }) {
   return (
@@ -532,10 +492,9 @@ function abreviar(nome = "") {
 /* ===== Styles ===== */
 
 // largura responsiva: mínimo 260px, cresce até 42% da viewport, máximo 360px
-const COL_W = "clamp(260px, 42vw, 360px)"; 
-//const COL_W = 340;
-
-// tamanhos do escudo
+const COL_W   = "clamp(140px, 42vw, 360px)"; // largura de cada coluna
+const GAP     = 16;                           // espaçamento horizontal entre colunas (px)
+const TIMER_W = 260;                          // largura fixa do cronômetro (px)
 const ICON_SIZE = 140;
 const ICON_WRAP_H = ICON_SIZE + 20; // altura fixa do “slot” do escudo
 
@@ -557,7 +516,7 @@ const ui = {
 
   teamsRow: {
     display: "grid",
-    gridTemplateColumns: `repeat(2, ${COL_W})`,gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: `repeat(2, ${COL_W})`,
     justifyItems: "center",   // centraliza cada coluna
     alignItems: "start",
     columnGap: 24,
@@ -659,14 +618,16 @@ const ui = {
   },
 
   timerTrapWide: {
-    display: "inline-block",
+    display: "block",
+    width: TIMER_W,
     margin: "0 auto",
     background: "#ff7a00",
     color: "#fff",
-    padding: "10px 64px",      // ↑ mais largo
+    padding: "10px 0",
     clipPath: "polygon(8% 0, 92% 0, 80% 100%, 20% 100%)",
     boxShadow: "0 6px 14px rgba(255,122,0,.28)",
+    textAlign: "center",
   },
 
-  timerText: { fontSize: 44, fontWeight: 900 },
+  timerText: { fontSize: 44, fontWeight: 900, textAlign: "center" },
 };
