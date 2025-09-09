@@ -12,6 +12,7 @@ export default function Placar() {
   const navigate = useNavigate();
   const isAvulso = !partidaId;
   const [toastMsg, setToastMsg] = useState("");
+  const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
   // ===== Estado base =====
   const [partida, setPartida] = useState(null);
@@ -131,13 +132,7 @@ export default function Placar() {
             return durTempo * 60;
           }
 
-          if (fase === "2T" && !encerrada) {
-            if (!isMataMata) {
-              setToastMsg("🏁 Partida encerrada (pontos corridos)");
-              setTimeout(() => setToastMsg(""), 3000);
-              salvarVinculado(true);
-            }
-          }
+          /* 2T: auto-encerramento tratado no useEffect separado (autoEndRef) */
 
           if (fase === "PR1" && !encerrada) {
             setToastMsg("⏱️ Fim da 1ª prorrogação!");
@@ -169,7 +164,8 @@ export default function Placar() {
     if (!rodando && segRestantes === 0) {
       if (!isMataMata && fase === "2T" && !encerrada && !autoEndRef.current) {
         autoEndRef.current = true;
-        salvarVinculado(true); // encerra, mostra alerta e trava período
+        showToast("🏁 Partida encerrada (pontos corridos)");
+        salvarVinculado(true);
       }
     }
     if (segRestantes > 0) autoEndRef.current = false;
@@ -268,22 +264,22 @@ export default function Placar() {
       encerrada: !!encerrar,
     };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
-    if (error) { alert("❌ Erro ao salvar partida"); return; }
+    if (error) { showToast("❌ Erro ao salvar partida"); return; }
     if (encerrar) {
       setEncerrada(true);
       setRodando(false);
       setSegRestantes(0);
       setEncerrada(true);
-      alert("✅ Partida encerrada e salva!");
+      showToast("✅ Partida encerrada e salva!");
     } else {
-      alert("✅ Parciais salvas!");
+      showToast("✅ Parciais salvas!");
     }
   }
 
   async function salvarLocalHorario() {
     // salva somente local e data/hora
     if (isAvulso || !partidaId) { 
-      alert("⏺️ Local/Data atualizados (modo avulso)");
+      showToast("⏺️ Local/Data atualizados (modo avulso)");
       return;
     }
     const payload = {
@@ -291,8 +287,8 @@ export default function Placar() {
       data_hora: dataHora ? new Date(dataHora).toISOString() : null,
     };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
-    if (error) { alert("❌ Erro ao salvar Local/Data"); return; }
-    alert("✅ Local e Data/Hora salvos!");
+    if (error) { showToast("❌ Erro ao salvar Local/Data"); return; }
+    showToast("✅ Local e Data/Hora salvos!");
   }
 
   function labelFaseAmigavel(f) {
