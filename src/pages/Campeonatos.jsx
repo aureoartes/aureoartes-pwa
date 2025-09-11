@@ -1,4 +1,5 @@
-// src/pages/Campeonatos.jsx — corrigido menu mobile controlado (sem pílula)
+// src/pages/Campeonatos.jsx — (V1)
+// Ajuste: título e subtítulo em blocos separados no mobile
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
@@ -155,10 +156,18 @@ export default function Campeonatos() {
       const { error } = await supabase.from("campeonatos").update(payload).eq("id", editando.id);
       if (error) return alert("❌ Erro ao atualizar");
       alert("✅ Campeonato atualizado!");
-    } else {
-      const { error } = await supabase.from("campeonatos").insert([payload]);
+     } else {
+      const { data, error } = await supabase
+        .from("campeonatos")
+        .insert([payload])
+        .select()
+        .single();
       if (error) return alert("❌ Erro ao salvar");
       alert("✅ Campeonato criado!");
+      if (data?.id) {
+        navigate(`/campeonatos/${data.id}/equipes`);
+        return;
+      }
     }
     const { data } = await supabase.from("campeonatos").select("*").eq("usuario_id", USUARIO_ID);
     setLista(data || []);
@@ -294,22 +303,24 @@ export default function Campeonatos() {
               const showTabela = !isMataMata;
               const showPartidas = isMataMata;
               return (
-                <li key={c.id} className="list__item">
-                  <div className="list__left" style={{ minWidth: 0 }}>
-                    <div className="list__title">{c.nome}</div>
-                    <div className="list__subtitle">{c.categoria} · {labelFormato(c.formato)} · {c.numero_equipes} equipes</div>
+                <li key={c.id} className="list__item" style={{ paddingTop: 4, paddingBottom: 4, minHeight: "unset" }}>
+                  <div className="list__left" style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.3 }}>
+                    <div className="list__title" style={{ textAlign: "left", marginBottom: 2, display: "block", width: "100%", fontSize: "1rem" }}>{c.nome}</div>
+                    <div className="list__subtitle" style={{ fontSize: "0.8rem", color: "#555", textAlign: "left", marginTop: 2, display: "block", width: "100%" }}>
+                      {c.categoria} · {labelFormato(c.formato)} · {c.numero_equipes} equipes
+                    </div>
                   </div>
 
                   {/* Desktop actions */}
-                  <div className="row hide-sm" style={{ gap: 8 }}>
+                  <div className="row hide-sm" style={{ gap: 6 }}>
                     <button className="btn btn--orange" onClick={() => abrirEditar(c)}>Editar</button>
                     <button className="btn btn--red" onClick={() => excluir(c)}>Excluir</button>
-                    <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${c.id}/equipes`)}>Equipes</button>
+                    <button className="btn btn--muted btn--sm" onClick={() => navigate(`/campeonatos/${c.id}/equipes`)}>Equipes</button>
                     {showTabela && (
-                      <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${c.id}/classificacao`)} disabled={!tem}>Tabela</button>
+                      <button className="btn btn--muted btn--sm" onClick={() => navigate(`/campeonatos/${c.id}/classificacao`)} disabled={!tem}>Tabela</button>
                     )}
                     {showPartidas && (
-                      <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${c.id}/partidas`)} disabled={!tem}>Partidas</button>
+                      <button className="btn btn--muted btn--sm" onClick={() => navigate(`/campeonatos/${c.id}/partidas`)} disabled={!tem}>Partidas</button>
                     )}
                   </div>
 

@@ -1,0 +1,510 @@
+// src/pages/CampeonatoChaveamento.jsx
+// Visão de mata‑mata (bracket) — layout horizontal com conectores entre colunas
+// Foco visual: nomes completos, hover, conectores SVG; agregado com inversão de mando; "-" para jogos não encerrados
+
+import { useEffect, useMemo, useState, useLayoutEffect, useRef } from "react";
+import { Link, useParams } from "react-router-dom";
+import supabase from "../lib/supabaseClient";
+import TeamIcon from "../components/TeamIcon";
+
+const ETAPAS_ORDEM = [
+  "preliminar",
+  "64-avos",
+  "32-avos",
+  "16-avos",
+  "oitavas",
+  "quartas",
+  "semifinal",
+  "final"
+]; // 3º lugar é ocultado
+
+function normalizeEtapa(raw) {
+  if (!raw) return "";
+  let s = String(raw).toLowerCase();
+  s = s.normalize('NFD').replace(/[̀-ͯ]/g, ''); // remove acentos (faixa Unicode combinantes)
+  s = s.replace(/[^a-z0-9]+/g, '_'); // separadores -> _
+  if (/prelim/.test(s) || /qualif/.test(s) || /play[-_ ]?in/.test(s)) return 'preliminar';
+  if (/(64|sessenta_e_quatro).*avos/.test(s) || /^64-avos?$/.test(s)) return '64-avos';
+  if (/(32|trinta_e_dois).*avos/.test(s) || /^32-avos?$/.test(s)) return '32-avos';
+  if (/(16|dezesseis).*avos/.test(s) || /^16-avos?$/.test(s)) return '16-avos';
+  if (/oitava/.test(s)) return 'oitavas';
+  if (/quarta/.test(s)) return 'quartas';
+  if (/semi/.test(s)) return 'semifinal';
+  if (/final/.test(s)) return 'final';
+  return String(raw).toLowerCase();
+}
+
+function etapaTitulo(etapa) {
+  const e = (etapa || "").toLowerCase();
+  if (e === "preliminar") return "PRELIMINAR";
+  if (e === "64-avos") return "64º AVOS";
+  if (e === "32-avos") return "32º AVOS";
+  if (e === "16-avos") return "16º AVOS";
+  if (e === "oitavas") return "OITAVAS";
+  if (e === "quartas") return "QUARTAS";
+  if (e === "semifinal") return "SEMIFINAL";
+  if (e === "final") return "FINAL";
+  return (etapa || "FASE").toUpperCase();
+}
+
+// --- Bracket grid helpers (alinhamento vertical tipo chaveamento)
+const ROW_H = 72; // altura de cada "slot" vertical
+function rowStartFor(colIndexRel, idxInCol) {
+  // Fórmula: start = 1 + 2^c + idx * 2^(c+1)
+  const c = Math.max(0, colIndexRel|0);
+  const start = 1 + (1 << c) + idxInCol * (1 << (c + 1));
+  return start;
+}
+function gridStyleForColumn(baseMatchesCount) {
+  const n0 = Math.max(1, baseMatchesCount|0);
+  const totalRows = 2 * n0; // garante espaço para todas as fases
+  return { display: 'grid', gridTemplateRows: `repeat(${totalRows}, ${ROW_H}px)` };
+}
+
+// Conectores em SVG entre colunas adjacentes (horizontal)
+function ConnectorLayer({ containerRef }) {
+  const svgRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const draw = () => {
+      const svg = svgRef.current;
+      if (!svg) return;
+
+      const rect = el.getBoundingClientRect();
+      const cards = Array.from(el.querySelectorAll('[data-col][data-idx]'));
+      const byCol = new Map();
+      for (const c of cards) {
+        const col = Number(c.getAttribute('data-col'));
+        const idx = Number(c.getAttribute('data-idx'));
+        if (!byCol.has(col)) byCol.set(col, []);
+        byCol.get(col)[idx] = c;
+      }
+
+      const width = el.scrollWidth;
+      const height = el.scrollHeight;
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('width', String(width));
+      svg.setAttribute('height', String(height));
+      // também define tamanhos via estilo para garantir expansão
+      svg.style.width = width + 'px';
+      svg.style.height = height + 'px';
+
+      // limpa
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+      // desenha ligações col -> col+1
+      for (const [col, arr] of byCol) {
+        const next = byCol.get(col + 1);
+        if (!next) continue;
+        arr.forEach((fromCard, i) => {
+          const toIdx = Math.floor(i / 2); // 2 → 1
+          const toCard = next[toIdx];
+          if (!fromCard || !toCard) return;
+          const a = fromCard.getBoundingClientRect();
+          const b = toCard.getBoundingClientRect();
+          // Coordenadas relativas ao SVG (considera scroll)
+          const startX = (a.right - rect.left) + el.scrollLeft;
+          const startY = (a.top - rect.top) + a.height / 2 + el.scrollTop;
+          const endX   = (b.left - rect.left) + el.scrollLeft;
+          const endY   = (b.top - rect.top) + b.height / 2 + el.scrollTop;
+          const dx = Math.max(36, (endX - startX) / 2);
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#FFB36A');
+          path.setAttribute('stroke-width', '2.5');
+          path.setAttribute('opacity', '0.95');
+          svg.appendChild(path);
+        });
+      }
+    };
+
+    const ro = new ResizeObserver(draw);
+    ro.observe(el);
+    const mo = new MutationObserver(draw);
+    mo.observe(el, { childList: true, subtree: true, attributes: true });
+    el.addEventListener('scroll', draw, { passive: true });
+    window.addEventListener('resize', draw);
+    draw();
+
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+      el.removeEventListener('scroll', draw);
+      window.removeEventListener('resize', draw);
+    };
+  }, [containerRef]);
+
+  return (
+    <svg
+      ref={svgRef}
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}
+    />
+  );
+}
+
+// Decide vencedor (agregado + pênaltis) mapeando por ID do time
+function decidirVencedor(par) {
+  const ida = par.ida || null;
+  const volta = par.volta || null;
+  if (!ida && !volta) return { vencedor: null, agregado: null };
+
+  // Identifica os dois times (independente de A/B em cada perna)
+  const t1 = ida?.time_a || ida?.time_b || volta?.time_a || volta?.time_b;
+  const t2 = [ida?.time_a, ida?.time_b, volta?.time_a, volta?.time_b].find(t => t && t.id !== t1?.id) || null;
+  if (!t1 || !t2) return { vencedor: null, agregado: null };
+
+  const golsDoTime = (match, team) => {
+    if (!match) return null;
+    if (!match.encerrada) return null;
+    if (match.time_a?.id === team.id) return match.gols_time_a ?? 0;
+    if (match.time_b?.id === team.id) return match.gols_time_b ?? 0;
+    return null;
+  };
+
+  const g1 = (golsDoTime(ida, t1) ?? 0) + (golsDoTime(volta, t1) ?? 0);
+  const g2 = (golsDoTime(ida, t2) ?? 0) + (golsDoTime(volta, t2) ?? 0);
+
+  // Ambas as pernas encerradas (ou só ida existente & encerrada)
+  const ambasEncerradas = (ida?.encerrada || false) && (volta ? volta.encerrada : true);
+  if (!ambasEncerradas) return { vencedor: null, agregado: null };
+
+  if (g1 !== g2) return { vencedor: g1 > g2 ? t1 : t2, agregado: `${g1}-${g2}` };
+
+  // Empate: decide por pênaltis da volta (ou da única perna)
+  const m = volta || ida;
+  if (m?.penaltis_time_a != null && m?.penaltis_time_b != null && m.penaltis_time_a !== m.penaltis_time_b) {
+    const pen1 = m.time_a?.id === t1.id ? m.penaltis_time_a : m.penaltis_time_b;
+    const pen2 = m.time_a?.id === t2.id ? m.penaltis_time_a : m.penaltis_time_b;
+    return { vencedor: pen1 > pen2 ? t1 : t2, agregado: `${g1}-${g2} (p)` };
+  }
+  return { vencedor: null, agregado: `${g1}-${g2}` };
+}
+
+function NomeTime({ team, title }) {
+  const nome = team?.nome || team?.abreviacao || title || 'Time';
+  return (
+    <span title={team?.nome || nome} style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {nome}
+    </span>
+  );
+}
+
+export default function CampeonatoChaveamento() {
+  const { id: campeonatoId } = useParams();
+
+  const [camp, setCamp] = useState(null);
+  const [jogos, setJogos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState("");
+  const bracketRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setErro("");
+      try {
+        const { data: c, error: e1 } = await supabase
+          .from('campeonatos')
+          .select('*')
+          .eq('id', campeonatoId)
+          .single();
+        if (e1) throw e1;
+        setCamp(c);
+
+        const { data: ps, error: e2 } = await supabase
+          .from('partidas')
+          .select(`id, chave_id, etapa, perna, is_mata_mata, encerrada,
+                    gols_time_a, gols_time_b, penaltis_time_a, penaltis_time_b,
+                    time_a:time_a_id(id, nome, abreviacao, cor1, cor2, cor_detalhe),
+                    time_b:time_b_id(id, nome, abreviacao, cor1, cor2, cor_detalhe)`)
+          .eq('campeonato_id', campeonatoId)
+          .eq('is_mata_mata', true)
+          .order('etapa', { ascending: true })
+          .order('chave_id', { ascending: true })
+          .order('perna', { ascending: true, nullsFirst: true });
+        if (e2) throw e2;
+        setJogos(ps || []);
+      } catch (err) {
+        setErro(err?.message || 'Falha ao carregar chaveamento');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [campeonatoId]);
+
+  // Agrupa por etapa -> chaves (ida/volta)
+  const colunas = useMemo(() => {
+    // 1) Agrupa jogos reais por etapa normalizada (ignorando 3º lugar)
+    const porEtapa = new Map();
+    if (Array.isArray(jogos)) {
+      for (const j of jogos) {
+        const etapaKeyRaw = j?.etapa || '';
+        const etapaKey = normalizeEtapa(etapaKeyRaw);
+        if (!etapaKey) continue;
+        if (/terce/.test(etapaKey) || /^3/.test(etapaKey)) continue; // ignora terceiro lugar
+        if (!porEtapa.has(etapaKey)) porEtapa.set(etapaKey, new Map());
+        const porChave = porEtapa.get(etapaKey);
+        const k = j.chave_id || j.id;
+        if (!porChave.has(k)) porChave.set(k, { ida: null, volta: null, meta: { chave_id: k } });
+        if (j.perna === 1 || j.perna == null) porChave.get(k).ida = j; else porChave.get(k).volta = j;
+      }
+    }
+
+    // 2) Determina de onde começar a mostrar (NÃO projetar fases anteriores ao início real)
+    //    - Se houver qualquer etapa diferente de preliminar, começamos da mais cedo entre elas
+    //    - 'preliminar' só aparece se tiver jogos; não projetamos placeholders para ela
+    const stagesPresent = Array.from(porEtapa.keys());
+    if (stagesPresent.length === 0) return [];
+
+    const orderIndex = (k) => ETAPAS_ORDEM.indexOf(k);
+    const nonPrelim = stagesPresent.filter(k => k !== 'preliminar');
+    const startStage = nonPrelim.length > 0
+      ? nonPrelim.sort((a,b) => orderIndex(a) - orderIndex(b))[0]
+      : 'preliminar';
+    const startIdx = Math.max(0, orderIndex(startStage));
+
+    // 3) Monta lista de etapas a exibir: somente do startIdx para frente
+    const etapas = ETAPAS_ORDEM.slice(startIdx);
+
+    // 4) Calcula tamanhos desejados APENAS para fases posteriores (projeção para frente)
+    const sizeReal = new Map();
+    for (const k of etapas) {
+      const realSize = porEtapa.get(k)?.size || 0;
+      sizeReal.set(k, realSize);
+    }
+
+    const sizeWanted = new Map();
+    for (let i = 0; i < etapas.length; i++) {
+      const k = etapas[i];
+      const real = sizeReal.get(k) || 0;
+      if (real > 0) {
+        sizeWanted.set(k, real);
+      } else {
+        // não projetar placeholders para preliminar
+        if (k === 'preliminar') {
+          sizeWanted.set(k, 0);
+          continue;
+        }
+        // usa metade arredondada para cima da fase anterior exibida
+        const prev = i > 0 ? (sizeWanted.get(etapas[i - 1]) || 0) : 0;
+        sizeWanted.set(k, prev > 0 ? Math.max(1, Math.ceil(prev / 2)) : 0);
+      }
+    }
+
+    // 5) Monta colunas com placeholders apenas do startIdx em diante; sem placeholders na preliminar
+    const out = [];
+    let colIndex = 0;
+    for (const etapaKey of etapas) {
+      const titulo = etapaTitulo(etapaKey);
+      const reaisMap = porEtapa.get(etapaKey);
+      const reais = reaisMap ? Array.from(reaisMap.values()) : [];
+      let wanted = sizeWanted.get(etapaKey) || 0;
+
+      // preliminar: só exibe o que existe, sem projeção
+      if (etapaKey === 'preliminar') wanted = reais.length;
+
+      // se não há nada a exibir nesta e nas próximas, para aqui
+      const hasAnyRight = ETAPAS_ORDEM.slice(ETAPAS_ORDEM.indexOf(etapaKey)).some(k => (sizeWanted.get(k) || 0) > 0 || (porEtapa.get(k)?.size || 0) > 0);
+      if (wanted === 0 && reais.length === 0 && !hasAnyRight) continue;
+
+      const pares = [...reais];
+      while (pares.length < wanted) {
+        pares.push({ ida: null, volta: null, meta: { placeholder: true } });
+      }
+
+      const concluidos = reais.reduce((acc, par) => acc + (decidirVencedor(par).vencedor ? 1 : 0), 0);
+      out.push({ etapaKey, titulo, pares, concluidos, total: pares.length, colIndex: colIndex++ });
+    }
+
+    return out;
+  }, [jogos]);
+
+  if (loading) return (
+    <div className="container"><div className="card">Carregando…</div></div>
+  );
+  if (erro) return (
+    <div className="container"><div className="card">❌ {erro}</div></div>
+  );
+
+  // estilos visuais
+  const ui = {
+    container: {},
+    headerWrap: { justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    badge: { background: '#FFF1E5', border: '1px solid #FFD6B8', color: '#B45309', fontWeight: 700, padding: '2px 8px', borderRadius: 999, fontSize: 12, marginLeft: 8 },
+    board: { overflowX: 'auto', padding: 0 },
+    lane: { position: 'relative', display: 'grid', gridAutoFlow: 'column', gap: 16, padding: 12, scrollSnapType: 'x mandatory', alignItems: 'start' },
+    col: (i) => ({
+      minWidth: 320, scrollSnapAlign: 'start',
+      background: i % 2 === 0 ? 'linear-gradient(180deg,#fafafa,#fff)' : 'linear-gradient(180deg,#fff,#fafafa)',
+      border: '1px solid #eef2f7', borderRadius: 16, padding: 10,
+      boxShadow: '0 1px 0 rgba(0,0,0,.02) inset', position: 'relative', zIndex: 1
+    }),
+    colHeader: { padding: '8px 10px', marginBottom: 8, borderBottom: '2px solid #FF6600', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 800, letterSpacing: .6, fontSize: 12 },
+    matches: (n0) => ({ ...gridStyleForColumn(n0), gap: 12 }),
+    card: (destaque) => ({
+      borderRadius: 14, padding: 12,
+      background: destaque ? '#FFF7ED' : '#fff',
+      boxShadow: destaque ? '0 10px 16px rgba(255,102,0,.12), 0 1px 2px rgba(0,0,0,.06)' : '0 4px 10px rgba(0,0,0,.05)',
+      border: destaque ? '1px solid #FFD6B8' : '1px solid #eef2f7',
+      transition: 'transform .12s ease, box-shadow .12s ease', position: 'relative', zIndex: 1
+    }),
+    cardHover: { transform: 'translateY(-1px)', boxShadow: '0 12px 18px rgba(0,0,0,.08)' },
+    row: { alignItems: 'center', gap: 10 },
+    teamNameWrap: { flex: 1, minWidth: 0 },
+    teamName: (isWinner) => ({ fontSize: 14, fontWeight: isWinner ? 800 : 600, color: isWinner ? '#b45309' : 'inherit' }),
+    pillBase: { padding: '2px 6px', borderRadius: 12, fontSize: 12, lineHeight: 1.2, marginLeft: 6, display: 'inline-block', fontVariantNumeric: 'tabular-nums' },
+    pillIda: (showVolta, encerrada) => ({ background: showVolta ? '#f3f4f6' : (encerrada ? '#fde68a' : '#f3f4f6'), fontWeight: showVolta ? 500 : 700 }),
+    pillVolta: () => ({ background: '#f3f4f6' }),
+    pillAgg: { background: '#e0f2fe', fontWeight: 700 },
+    pillPen: { background: '#fde2e2', color: '#991b1b', fontWeight: 700 },
+  };
+
+  const baseCount = Math.max(1, colunas[0]?.total || 1);
+
+  return (
+    <div className="container" style={ui.container}>
+      <div className="row" style={ui.headerWrap}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Chaveamento — {camp?.nome}</h1>
+          <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>Mata‑mata</div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <Link to={`/campeonatos/${camp?.id}/partidas`} className="btn btn--muted">Voltar</Link>
+        </div>
+      </div>
+
+      <div className="card" style={ui.board}>
+        <div className="bracket" ref={bracketRef} style={ui.lane}>
+          {colunas.map((col) => (
+            <div key={col.etapaKey} style={ui.col(col.colIndex)} data-col={col.colIndex}>
+              <div style={ui.colHeader}>
+                <span>{col.titulo}</span>
+                <span style={ui.badge}>{col.concluidos}/{col.total}</span>
+              </div>
+              <div style={ui.matches(baseCount)}>
+                {col.pares.map((par, idx) => {
+                  const rowStart = rowStartFor(col.colIndex, idx);
+                  const isPlaceholder = !!par?.meta?.placeholder;
+                  const ida = par.ida || null;
+                  const volta = par.volta || null;
+
+                  // Times por ID (lida com inversão de mando)
+                  const t1 = isPlaceholder ? null : (ida?.time_a || ida?.time_b || volta?.time_a || volta?.time_b);
+                  const t2 = isPlaceholder ? null : ([ida?.time_a, ida?.time_b, volta?.time_a, volta?.time_b].find(t => t && t.id !== t1?.id) || null);
+
+                  const golsDoTime = (match, team) => {
+                    if (!match) return null;
+                    if (!match.encerrada) return null; // mostra '-'
+                    if (match.time_a?.id === team?.id) return match.gols_time_a ?? 0;
+                    if (match.time_b?.id === team?.id) return match.gols_time_b ?? 0;
+                    return null;
+                  };
+                  const penDoTime = (match, team) => {
+                    if (!match) return null;
+                    if (match.time_a?.id === team?.id) return match.penaltis_time_a ?? null;
+                    if (match.time_b?.id === team?.id) return match.penaltis_time_b ?? null;
+                    return null;
+                  };
+
+                  const idaA = isPlaceholder ? null : golsDoTime(ida, t1);
+                  const idaB = isPlaceholder ? null : golsDoTime(ida, t2);
+                  const voltaA = isPlaceholder ? null : golsDoTime(volta, t1);
+                  const voltaB = isPlaceholder ? null : golsDoTime(volta, t2);
+
+                  const penA = isPlaceholder ? null : penDoTime(volta || ida, t1);
+                  const penB = isPlaceholder ? null : penDoTime(volta || ida, t2);
+
+                  const showVolta = !!volta && !isPlaceholder;
+                  const ambasEncerradas = !isPlaceholder && (ida?.encerrada || false) && (volta ? volta.encerrada : false);
+                  const aggA = ambasEncerradas ? ((idaA ?? 0) + (voltaA ?? 0)) : null;
+                  const aggB = ambasEncerradas ? ((idaB ?? 0) + (voltaB ?? 0)) : null;
+
+                  const { vencedor } = isPlaceholder ? { vencedor: null } : decidirVencedor(par);
+                  const isWinnerA = vencedor && t1 && vencedor.id === t1?.id;
+                  const isWinnerB = vencedor && t2 && vencedor.id === t2?.id;
+
+                  const renderNum = (valor, encerrada) => (encerrada ? (valor ?? 0) : '–');
+
+                  const cardStyle = isPlaceholder
+                    ? { ...ui.card(false), borderStyle: 'dashed', background: '#fafafa' }
+                    : ui.card(!!vencedor);
+
+                  return (
+                    <div
+                      key={idx}
+                      className="match-card"
+                      data-col={col.colIndex}
+                      data-idx={idx}
+                      style={{ ...cardStyle, gridRow: `${rowStart} / span 1`, minHeight: ROW_H - 16 }}
+                      onMouseEnter={(e) => !isPlaceholder && Object.assign(e.currentTarget.style, ui.cardHover)}
+                      onMouseLeave={(e) => !isPlaceholder && Object.assign(e.currentTarget.style, ui.card(!!vencedor))}
+                    >
+                      {/* Linha A */}
+                      <div className="row" style={ui.row}>
+                        <TeamIcon team={t1} size={26} />
+                        <div style={ui.teamNameWrap}>
+                          <div style={{ ...ui.teamName(isWinnerA), display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>{isPlaceholder ? 'Aguardando confrontos' : <NomeTime team={t1} title="Time A" />}</span>
+                            <span>
+                              {isPlaceholder ? (
+                                <span style={{ ...ui.pillBase, background: '#eee' }}>–</span>
+                              ) : (
+                                <>
+                                  {ida && (<span title="Gols na ida" style={{ ...ui.pillBase, ...ui.pillIda(showVolta, ida?.encerrada) }}>{renderNum(idaA, ida?.encerrada)}</span>)}
+                                  {showVolta && (<span title="Gols na volta" style={{ ...ui.pillBase, ...ui.pillVolta(volta?.encerrada) }}>{renderNum(voltaA, volta?.encerrada)}</span>)}
+                                  {ambasEncerradas && (<span title="Gols no agregado" style={{ ...ui.pillBase, ...ui.pillAgg }}>{aggA}</span>)}
+                                  {(penA != null) && (volta?.encerrada || (!volta && ida?.encerrada)) && (<span title="Pênaltis" style={{ ...ui.pillBase, ...ui.pillPen }}>p {penA}</span>)}
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Linha B */}
+                      <div className="row" style={{ ...ui.row, marginTop: 6 }}>
+                        <TeamIcon team={t2} size={26} />
+                        <div style={ui.teamNameWrap}>
+                          <div style={{ ...ui.teamName(isWinnerB), display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>{isPlaceholder ? 'Aguardando confrontos' : <NomeTime team={t2} title="Time B" />}</span>
+                            <span>
+                              {isPlaceholder ? (
+                                <span style={{ ...ui.pillBase, background: '#eee' }}>–</span>
+                              ) : (
+                                <>
+                                  {ida && (<span title="Gols na ida" style={{ ...ui.pillBase, ...ui.pillIda(showVolta, ida?.encerrada) }}>{renderNum(idaB, ida?.encerrada)}</span>)}
+                                  {showVolta && (<span title="Gols na volta" style={{ ...ui.pillBase, ...ui.pillVolta(volta?.encerrada) }}>{renderNum(voltaB, volta?.encerrada)}</span>)}
+                                  {ambasEncerradas && (<span title="Gols no agregado" style={{ ...ui.pillBase, ...ui.pillAgg }}>{aggB}</span>)}
+                                  {(penB != null) && (volta?.encerrada || (!volta && ida?.encerrada)) && (<span title="Pênaltis" style={{ ...ui.pillBase, ...ui.pillPen }}>p {penB}</span>)}
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Conectores por cima (z-index 2) */}
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}>
+            <ConnectorLayer containerRef={bracketRef} />
+          </div>
+
+          {/* Fallback */}
+          {colunas.length === 0 && (
+            <div style={{ padding: 12 }}>Nenhuma partida de mata‑mata encontrada.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,4 +1,5 @@
-// src/pages/Placar.jsx (V5 com topo estilizado e toast em vez de alert)
+// src/pages/Placar.jsx (V12)
+//Ajuste nome truncado
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
@@ -53,11 +54,26 @@ export default function Placar() {
 
   const intervalRef = useRef(null);
 
+  const [canEnd, setCanEnd] = useState(true);
+
+
   // ===== Carregamento =====
   useEffect(() => {
+    try { setCanEnd(canEncerrarPartida()); }
+    catch { setCanEnd(true); }
+  }, [encerrada, fase, isMataMata, penFinished,
+      golsA, golsB, penA, penB, penAMiss, penBMiss,
+      ida, perna, camp]);
+    
+  useEffect(() => {
     if (isAvulso) {
-      setDurTempo(10); setUsaProrrogacao(false); setDurProrro(5); setQtdPen(5);
-      setFase("1T"); setSegRestantes(10 * 60); setRodando(false);
+      const tempoMin = 10;
+      setDurTempo(tempoMin); setUsaProrrogacao(false); setDurProrro(5); setQtdPen(5);
+      setEncerrada(false);
+      setFase("1T");
+      setSegRestantes(tempoMin * 60);
+      setRodando(false);
+      if (!dataHora) setDataHora(nowLocalForInput());
       return;
     }
     (async () => {
@@ -109,13 +125,30 @@ export default function Placar() {
         setIda(idaMatch || null);
       } else setIda(null);
 
-      setFase("1T"); setSegRestantes(tempoMin * 60); setRodando(false);
+      if (!p.encerrada) { setFase("1T"); setSegRestantes(tempoMin * 60); setRodando(false); }
+      if (!p.data_hora) {
+        setDataHora(nowLocalForInput());
+      }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAvulso, partidaId]);
 
   // ===== Timer =====
   useEffect(() => {
+    // Verificar possibilidade de empate ao abrir tela ou reiniciar partida
+    if (isMataMata && !encerrada) {
+      if (fase === "2T" && precisaDesempateApos2T()) {
+        setEncerrada(false); // apenas força re-render
+      }
+      if (fase === "PR1") {
+        setEncerrada(false);
+      }
+      if (fase === "PR2") {
+        const agg = placarAgregado();
+        if (agg.a === agg.b) setEncerrada(false);
+      }
+    }
+
     if (!rodando) { clearInterval(intervalRef.current); return; }
     intervalRef.current = setInterval(() => {
       setSegRestantes((s) => {
@@ -125,26 +158,45 @@ export default function Placar() {
 
           // Auto-transições por término de tempo
           if (fase === "1T" && !encerrada) {
-            setToastMsg("⏱️ Fim do 1º tempo!");
-            setTimeout(() => setToastMsg(""), 3000);
+            showToast("⏱️ Fim do 1º tempo!");
             setFase("2T");
             setSegRestantes(durTempo * 60);
             return durTempo * 60;
           }
 
-          /* 2T: auto-encerramento tratado no useEffect separado (autoEndRef) */
+          // 2T: pontos corridos auto-encerram no useEffect(autoEndRef).
+          // Em MATA-MATA: decidir próximo período automaticamente ao zerar.
+          if (fase === "2T" && !encerrada && isMataMata) {
+            if (precisaDesempateApos2T()) {
+              const prMin = Number(camp?.duracao_prorrogacao_min ?? camp?.duracao_prorrogacao);
+              const prDur = prMin || durProrro || 15; // minutos
+              if (camp?.prorrogacao) {
+                showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada.");
+                setFase("PR1");
+                setSegRestantes(Math.max(1, Math.round(prDur * 60)));
+                return Math.max(1, Math.round(prDur * 60));
+              } else {
+                showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis.");
+                const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
+                setQtdPen(penReg);
+                setFase("PEN");
+                return 0; // timer não roda em pênaltis
+              }
+            } else {
+              // Não precisa desempate: encerrar manual/auto via botão ou salvarVinculado externo
+              // (mantém comportamento atual)
+            }
+          }
 
           if (fase === "PR1" && !encerrada) {
-            setToastMsg("⏱️ Fim da 1ª prorrogação!");
-            setTimeout(() => setToastMsg(""), 3000);
+            showToast("⏱️ Fim da 1ª prorrogação!");
             setFase("PR2");
             setSegRestantes(durProrro * 60);
             return durProrro * 60;
           }
 
           if (fase === "PR2" && !encerrada) {
-            setToastMsg("⏱️ Fim da 2ª prorrogação!");
-            setTimeout(() => setToastMsg(""), 3000);
+            showToast("⏱️ Fim da 2ª prorrogação!");
             if (isMataMata && golsA === golsB) {
               const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
               setQtdPen(penReg);
@@ -177,6 +229,17 @@ export default function Placar() {
   }
 
   // ===== Helpers e regras =====
+  // Datas: manter horário escolhido como LOCAL (evitar +fuso ao salvar/exibir)
+  function toLocalISOString(dtLike) {
+    const d = new Date(dtLike);
+    const off = d.getTimezoneOffset();
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 19);
+  }
+  function nowLocalForInput() {
+    const d = new Date();
+    const off = d.getTimezoneOffset();
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+  }
   
   const [corA1, setCorA1] = useState("#e41010");
   const [corA2, setCorA2] = useState("#101010");
@@ -189,12 +252,7 @@ export default function Placar() {
   const [nomeLivreB, setNomeLivreB] = useState("Time B");
 
   const empateJogo = () => golsA === golsB;
-  const agregadoEmpatadoAoFimDo2T = () => {
-    if (!isMataMata) return false;
-    if (perna !== 2 || !ida) return false;
-    const idaA = ida?.gols_time_a ?? 0; const idaB = ida?.gols_time_b ?? 0;
-    return idaA + golsA === idaB + golsB;
-  };
+
   const podeProrrogacaoApos2T = () => {
     if (!camp?.prorrogacao) return false;
     if (!isMataMata) return false;
@@ -204,50 +262,75 @@ export default function Placar() {
     return false;
   };
 
+  // Debug logs (defina false para silenciar durante testes)
+  const DEBUG = true;
+  // ===== Helpers de agregado (mata-mata ida/volta) =====
+  function placarAgregado() {
+    // Volta sem ida: agregado é o placar atual
+    if (perna !== 2 || !ida) {
+      if (DEBUG) console.log('[agg] sem ida: volta', { a: golsA, b: golsB });
+      return { a: golsA, b: golsB };
+    }
+
+    // Gols da ida conforme salvos no banco (sempre relativos ao mandante da ida)
+    const idaGA = Number(ida?.gols_time_a ?? 0);
+    const idaGB = Number(ida?.gols_time_b ?? 0);
+
+    // Precisamos mapear os gols da ida para os times A/B ATUAIS (volta),
+    // pois o mando pode inverter entre as pernas.
+    const idaTA = ida?.time_a_id ?? ida?.id_time_a ?? ida?.clube_a_id; // tentativas de nomes
+    const idaTB = ida?.time_b_id ?? ida?.id_time_b ?? ida?.clube_b_id;
+    const volTA = timeA?.id;
+    const volTB = timeB?.id;
+
+    let aggA, aggB;
+    if (idaTA && idaTB && volTA && volTB) {
+      // Se o time A da VOLTA foi o time A da IDA, ele herda idaGA; se foi o time B da IDA, herda idaGB
+      const idaForVolA = (idaTA === volTA) ? idaGA : (idaTB === volTA) ? idaGB : null;
+      const idaForVolB = (idaTA === volTB) ? idaGA : (idaTB === volTB) ? idaGB : null;
+
+      // Fallback seguro caso IDs não batam por algum motivo
+      aggA = (idaForVolA != null ? idaForVolA : idaGA) + golsA;
+      aggB = (idaForVolB != null ? idaForVolB : idaGB) + golsB;
+
+      if (DEBUG) console.log('[agg] map por IDs', {
+        ida: { idaGA, idaGB, idaTA, idaTB },
+        volta: { volTA, volTB, golsA, golsB },
+        mapeado: { aggA, aggB }
+      });
+    } else {
+      // Sem IDs confiáveis: assumir mesma ordem A/B
+      aggA = idaGA + golsA;
+      aggB = idaGB + golsB;
+      if (DEBUG) console.log('[agg] fallback ordem', { idaGA, idaGB, golsA, golsB, aggA, aggB });
+    }
+
+    return { a: aggA, b: aggB };
+  }
+  // Empate no agregado ao final do 2T da volta?
+  function agregadoEmpatadoAoFimDo2T() {
+    if (perna !== 2) return false;
+    const agg = placarAgregado();
+    const empate = agg.a === agg.b;
+    if (DEBUG) console.log('[rule] agregadoEmpatadoAoFimDo2T', { agg, empate });
+    return empate;
+  }
+  // Precisa decidir após 2T?
+  // - Volta empatada no agregado
+  // - OU jogo único empatado com desempate no regulamento
+  function precisaDesempateApos2T() {
+    const jogoUnico = isMataMata && (!camp?.ida_volta || camp?.ida_volta === 0 || camp?.ida_volta === "false");
+    let res = false;
+    if (jogoUnico) res = (golsA === golsB);
+    else if (isMataMata && perna === 2) res = agregadoEmpatadoAoFimDo2T();
+    if (DEBUG) console.log('[rule] precisaDesempateApos2T', { jogoUnico, perna, res });
+    return res;
+  }
+
   function resetPeriodo() {
     if (fase === "1T" || fase === "2T") setSegRestantes(durTempo * 60);
     else if (fase === "PR1" || fase === "PR2") setSegRestantes(durProrro * 60);
     setRodando(false);
-  }
-
-  function encerrarPeriodo(perguntar = true) {
-    if (perguntar) {
-      const ok = confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`);
-      if (!ok) return;
-    }
-
-    // sempre parar e resetar o cronômetro
-    resetPeriodo();
-
-    if (fase === "1T") {
-      setFase("2T");
-      return;
-    }
-    if (fase === "2T") {
-      if (isMataMata) {
-        const jogoUnico = (camp?.ida_volta === false || camp?.ida_volta === 0 || camp?.ida_volta === "false");
-        const precisaDecidir = jogoUnico ? (golsA === golsB) : (perna === 2 && agregadoEmpatadoAoFimDo2T());
-        if (precisaDecidir) {
-          if (camp?.prorrogacao) { setFase("PR1"); return; }
-          const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
-          setQtdPen(penReg); setFase("PEN"); return;
-        }
-        salvarVinculado(true);
-        return;
-      }
-      // Se não é mata-mata: apenas encerra sem ir para penaltis
-      salvarVinculado(true);
-      return;
-    }
-    if (fase === "PR1") { setFase("PR2"); return; }
-    if (fase === "PR2") {
-      if (empateJogo()) {
-        const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
-        setQtdPen(penReg); setFase("PEN"); return;
-      }
-      if (isMataMata) salvarVinculado(true);
-      return;
-    }
   }
 
   async function salvarVinculado(encerrar = false) {
@@ -260,7 +343,7 @@ export default function Placar() {
       penmiss_time_a: fase === "PEN" ? penAMiss : null,
       penmiss_time_b: fase === "PEN" ? penBMiss : null,
       local: local || null,
-      data_hora: dataHora ? new Date(dataHora).toISOString() : null,
+      data_hora: dataHora ? toLocalISOString(dataHora) : null,
       encerrada: !!encerrar,
     };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
@@ -269,7 +352,6 @@ export default function Placar() {
       setEncerrada(true);
       setRodando(false);
       setSegRestantes(0);
-      setEncerrada(true);
       showToast("✅ Partida encerrada e salva!");
     } else {
       showToast("✅ Parciais salvas!");
@@ -284,11 +366,40 @@ export default function Placar() {
     }
     const payload = {
       local: local || null,
-      data_hora: dataHora ? new Date(dataHora).toISOString() : null,
+      data_hora: dataHora ? toLocalISOString(dataHora) : null,
     };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
     if (error) { showToast("❌ Erro ao salvar Local/Data"); return; }
     showToast("✅ Local e Data/Hora salvos!");
+  }
+  async function reiniciarPartida() {
+    // Reset local
+    setGolsA(0); setGolsB(0);
+    resetPenalties();
+    setFase("1T"); setSegRestantes(durTempo * 60); setRodando(false);
+    setEncerrada(false);
+
+    // Persistir no banco como "nova" (zerada)
+    if (isAvulso || !partidaId) {
+      showToast("🔄 Partida reiniciada");
+    } else {
+      const payload = {
+        gols_time_a: 0,
+        gols_time_b: 0,
+        penaltis_time_a: 0,
+        penaltis_time_b: 0,
+        penmiss_time_a: 0,
+        penmiss_time_b: 0,
+        encerrada: false,
+        prorrogacao: false,
+      };
+      const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
+      if (error) {
+        showToast("❌ Erro ao reiniciar partida");
+      } else {
+        showToast("🔄 Partida reiniciada");
+      }
+    }
   }
 
   function labelFaseAmigavel(f) {
@@ -368,70 +479,141 @@ export default function Placar() {
     }
   }
 
+  function finalizarPartidaPenaltis() {
+    if (DEBUG) console.log('[pen] finalizarPartidaPenaltis');
+    setPenFinished(true);
+    setEncerrada(true);
+    salvarVinculado(true);
+  }
+
   function registrarPenalti(team, convertido) {
+   if (DEBUG) console.log('[pen] registrar', { team, convertido, penAlt, turno: penTurn, A: { conv: penA, miss: penAMiss }, B: { conv: penB, miss: penBMiss } });
+
     if (penFinished || encerrada) return;
     if (team !== penTurn) return;
 
+    let aConv = penA, aMiss = penAMiss, bConv = penB, bMiss = penBMiss;
     if (team === "A") {
-      if (convertido) setPenA(v => v + 1); else setPenAMiss(v => v + 1);
-      setPenTurn("B");
-      avaliarPenaltis("A");
+      if (convertido) aConv += 1; else aMiss += 1;
     } else {
-      if (convertido) setPenB(v => v + 1); else setPenBMiss(v => v + 1);
-      setPenTurn("A");
-      avaliarPenaltis("B");
+      if (convertido) bConv += 1; else bMiss += 1;
+    }
+
+    const aTot = aConv + aMiss;
+    const bTot = bConv + bMiss;
+
+    if (DEBUG) console.log("[PENALTIS] Após cobrança de", team, convertido ? "✅" : "❌", "| A:", aConv, "(", aTot, ") B:", bConv, "(", bTot, ") alt=", penAlt);
+    
+    if (!penAlt) {
+      if (DEBUG) console.log('[pen] regulares check', { aConv, aMiss, bConv, bMiss, qtdPen });
+      const remA = Math.max(0, qtdPen - aTot);
+      const remB = Math.max(0, qtdPen - bTot);
+      if ((aConv - bConv) > remB || (bConv - aConv) > remA) {
+        setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
+        finalizarPartidaPenaltis();
+        return;
+      }
+      if (aTot >= qtdPen && bTot >= qtdPen) {
+        setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
+        if (aConv !== bConv) {
+          finalizarPartidaPenaltis();
+        } else {
+          setPenAlt(true);
+          setPenTurn("A");
+        }
+        return;
+      }
+      setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
+      setPenTurn(team === "A" ? "B" : "A");
+      return;
+    }
+
+    setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
+    if (team === "B") {
+      if (aConv !== bConv) {
+        finalizarPartidaPenaltis();
+      } else {
+        setPenTurn("A");
+      }
+    } else {
+      setPenTurn("B");
     }
   }
 
   function canEncerrarPartida() {
-    // se já encerrada, não pode encerrar novamente (desabilita botão)
+    if (DEBUG) console.log('[ui] canEncerrarPartida state', { fase, encerrada, isMataMata, penFinished, perna, golsA, golsB, camp });
+
     if (encerrada) return false;
-    // Em pênaltis: só se já finalizado
     if (fase === "PEN") return penFinished;
-    // Mata-mata que exige desempate e está empatado
-    const jogoUnico = isMataMata && (!perna || perna === 0 || perna === 1) && camp?.prorrogacao;
-    const voltaEmpatada = isMataMata && perna === 2 && camp?.prorrogacao && agregadoEmpatadoAoFimDo2T();
-    if ((jogoUnico || voltaEmpatada) && empateJogo()) return false;
+
+    if (isMataMata) {
+      const jogoUnico =
+        !camp?.ida_volta || camp?.ida_volta === 0 || camp?.ida_volta === false || camp?.ida_volta === "false";
+
+      // Jogo único: nunca encerrar empatado (em qualquer fase)
+      if (jogoUnico) {
+        if (golsA === golsB) return false;
+      } else if (perna === 2) {
+        // Volta: se agregado empatado, não pode encerrar (em qualquer fase)
+        const agg = placarAgregado();
+        if (DEBUG) console.log('[ui] agregado atual', agg);
+        if (agg.a === agg.b) return false;
+      }
+
+      // PR1: nunca encerrar manualmente
+      if (fase === "PR1") return false;
+
+      // PR2 (volta) empatado no agregado também bloqueia (reforço)
+      if (fase === "PR2" && perna === 2) {
+        const agg2 = placarAgregado();
+        if (agg2.a === agg2.b) return false;
+      }
+    }
+
     return true;
   }
 
-  // ===== Encerrar período (com desempate) =====
+  // ===== Encerrar período =====
   function encerrarPeriodo(perguntar = true) {
+    if (DEBUG) console.log('[periodo] encerrar', { fase });
     if (perguntar) {
       const ok = confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`);
       if (!ok) return;
     }
+    setRodando(false);
 
-    // 1º tempo -> 2º tempo
     if (fase === "1T") { setFaseComDuracao("2T"); return; }
 
-    // Encerrando 2º tempo
     if (fase === "2T") {
-      if (isMataMata) {
-        const jogoUnico = (camp?.ida_volta === false || camp?.ida_volta === 0 || camp?.ida_volta === "false");
-        const precisaDecidir = jogoUnico ? (golsA === golsB) : (perna === 2 && agregadoEmpatadoAoFimDo2T());
-        if (precisaDecidir) {
-          if (camp?.prorrogacao) { setFaseComDuracao("PR1"); return; }
-          const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
-          setQtdPen(penReg); setFase("PEN"); setRodando(false); setEncerrada(true); return;
+      if (!isMataMata) { salvarVinculado(true); return; }
+      if (precisaDesempateApos2T()) {
+        if (camp?.prorrogacao) {
+          showToast("⏱️ Fim do 2º tempo! Vamos para a prorrogação.");
+          setFaseComDuracao("PR1"); return;
         }
-        if (typeof salvarVinculado === "function") salvarVinculado(true); else setRodando(false);
-        return;
+        showToast("⏱️ Fim do 2º tempo! Vamos para os pênaltis.");
+        setFase("PEN"); return;
       }
-      // Avulso e outras fases
-      if (empateJogo() && usaProrrogacao) { setFaseComDuracao("PR1"); return; }
-      if (empateJogo() && !usaProrrogacao) { const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5; setQtdPen(penReg); setFase("PEN"); setRodando(false); return; }
-      setRodando(false); return;
+      // se não precisa desempate, encerra
+      salvarVinculado(true); return;
+      if (precisaDesempateApos2T()) {
+        if (camp?.prorrogacao) { setFaseComDuracao("PR1"); return; }
+        setFase("PEN"); return;
+      }
+      salvarVinculado(true); return;
     }
 
-    // PR1 -> PR2
     if (fase === "PR1") { setFaseComDuracao("PR2"); return; }
 
-    // Fim PR2
     if (fase === "PR2") {
-      if (empateJogo()) { const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5; setQtdPen(penReg); setFase("PEN"); setRodando(false); return; }
-      if (isMataMata && typeof salvarVinculado === "function") { salvarVinculado(true); return; }
-      setRodando(false); return;
+      if (isMataMata) {
+        const agg = placarAgregado();
+        if (agg.a === agg.b) {
+          const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
+          setQtdPen(penReg); setFase("PEN"); return;
+        }
+      }
+      salvarVinculado(true); return;
     }
   }
 
@@ -464,19 +646,38 @@ export default function Placar() {
         <div style={ui.iconCell}>{renderTeamIcon(withColors(timeB, corB1, corB2, corBDetalhe))}</div>
 
         {/* Nomes */}
-        <div style={{ ...ui.teamNameBar, background: corA1, color: corADetalhe, textShadow: getContrastShadow(corADetalhe) }}>{timeA.nome}</div>
-        <div style={{ ...ui.teamNameBar, background: corB1, color: corBDetalhe, textShadow: getContrastShadow(corBDetalhe) }}>{timeB.nome}</div>
-
+        <div style={{ 
+          ...ui.teamNameBar, 
+          background: corA1, 
+          color: corADetalhe, 
+          textShadow: getContrastShadow(corADetalhe),
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }}>
+          {timeA.nome}
+        </div>
+        <div style={{ 
+          ...ui.teamNameBar, 
+          background: corB1, 
+          color: corBDetalhe, 
+          textShadow: getContrastShadow(corBDetalhe),
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }}>
+          {timeB.nome}
+        </div>
         {/* Faixa fina */}
         <div style={{ ...ui.teamThinBar, background: corA2 }} />
         <div style={{ ...ui.teamThinBar, background: corB2 }} />
 
         {/* Placar */}
         <div style={ui.scoreCell}>
-          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} />
+          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} />
         </div>
         <div style={ui.scoreCell}>
-          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} />
+          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} />
         </div>
       </div>
 
@@ -490,31 +691,47 @@ export default function Placar() {
       
       {/* Toast sutil */}
       {toastMsg && (
-        <div style={{ background: "#ff7a00", color: "#fff", padding: "8px 14px", borderRadius: 8, textAlign: "center", marginBottom: 12 }}>
+        <div style={{
+          position: 'fixed',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#ff7a00',
+          color: '#fff',
+          padding: '10px 16px',
+          borderRadius: 10,
+          boxShadow: '0 8px 20px rgba(0,0,0,.2)',
+          opacity: 1,
+          transition: 'opacity 0.5s ease-in-out',
+          zIndex: 9999,
+          textAlign: 'center'
+        }}>
           {toastMsg}
         </div>
       )}
 
-      {/* Seção Período */}
-      {encerrada ? (
+      {/* Seção Período / Encerrada */}
+      {encerrada && (
         <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center", fontWeight: 800 }}>
           Partida Encerrada
         </div>
-      ) : (
-        (fase !== "PEN") && (
-          <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center" }}>
-            <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 22, color: "#ff7a00" }}>{labelFaseAmigavel(fase)}</div>
-            <div className="row" style={{ gap: 8, justifyContent: "center" }}>
-              {!rodando ? (
-                <button className="btn btn--primary" onClick={() => setRodando(true)}>Iniciar</button>
-              ) : (
-                <button className="btn btn--primary" onClick={() => setRodando(false)}>Pausar</button>
-              )}
-              <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
-              <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)}>Encerrar período</button>
-            </div>
+      )}
+
+      {!encerrada && fase !== "PEN" && (
+        <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center" }}>
+          <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 22, color: "#ff7a00" }}>
+            {labelFaseAmigavel(fase)}
           </div>
-        )
+          <div className="row" style={{ gap: 8, justifyContent: "center" }}>
+            {!rodando ? (
+              <button className="btn btn--primary" onClick={() => setRodando(true)}>Iniciar</button>
+            ) : (
+              <button className="btn btn--primary" onClick={() => setRodando(false)}>Pausar</button>
+            )}
+            <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
+            <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)}>Encerrar período</button>
+          </div>
+        </div>
       )}
 
       {/* Seção Pênaltis */}
@@ -536,14 +753,14 @@ export default function Placar() {
                   style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
                   onClick={() => registrarPenalti("A", true)} 
                   disabled={encerrada || penFinished || penTurn !== "A"}
-                >✅
+                >✅ Marcou
                 </button>
                 <button
                   className="btn btn--primary"
                   style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
                   onClick={() => registrarPenalti("A", false)} 
                   disabled={encerrada || penFinished || penTurn !== "A"}
-                >❌
+                >❌ Perdeu
                 </button>
               </div>
             </div>
@@ -556,14 +773,14 @@ export default function Placar() {
                   style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
                   onClick={() => registrarPenalti("B", true)} 
                   disabled={encerrada || penFinished || penTurn !== "B"}
-                >✅
+                >✅ Marcou
                 </button>
                 <button
                   className="btn btn--primary"
                   style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
                   onClick={() => registrarPenalti("B", false)} 
                   disabled={encerrada || penFinished || penTurn !== "B"}
-                 >❌
+                 >❌ Perdeu
                 </button>
               </div>
             </div>
@@ -575,7 +792,7 @@ export default function Placar() {
       <div className="card" style={{ padding: 16, marginTop: 20 }}>
         <div className="row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <input type="text" className="input" placeholder="Local" value={local} onChange={e => setLocal(e.target.value)} />
-          <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} />
+          <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} onFocus={() => { if (!dataHora) { const agora = new Date(); setDataHora(agora.toISOString().slice(0,16)); } }} />
         </div>
         <div className="row" style={{ gap: 12, justifyContent: "center" }}>
           <button
@@ -585,23 +802,18 @@ export default function Placar() {
           >
             Salvar Local
           </button>
-          <button
+          <button              
             className="btn"
             style={{ background: "#d93025", color: "#fff" }}
-            onClick={() => {
-              setGolsA(0); setGolsB(0);
-              resetPenalties();
-              setFase("1T"); setSegRestantes(durTempo * 60); setRodando(false);
-              setEncerrada(false);
-            }}
+            onClick={reiniciarPartida}
           >
             Reiniciar Partida
           </button>
           <button
             className="btn"
             style={{ background: "#d93025", color: "#fff" }}
-            onClick={() => canEncerrarPartida() && salvarVinculado(true)}
-            disabled={!canEncerrarPartida()}
+            onClick={() => canEnd && salvarVinculado(true)}
+            disabled={!canEnd}
           >
             Encerrar Partida
           </button>
@@ -695,22 +907,21 @@ function TeamBlock({ team }) {
 }
 
 /* ===== ScoreCard (polígono 4 faces conforme especificação) ===== */
-function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = "A" }) {
-  // 4 faces:
-  //  A (time esquerdo): topo 100%, esquerda 90°, base 90% (alinhada à esquerda), direita diagonal
-  //  B (time direito): topo 100%, direita 90°, base 90% (alinhada à direita), esquerda diagonal
+function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = "A", showControls = true }) {
   const clip = side === "A"
-    ? "polygon(0 0, 100% 0, 90% 100%, 0 100%)"     // TL→TR→BR(90%)→BL
-    : "polygon(0 0, 100% 0, 100% 100%, 10% 100%)"; // TL→TR→BR(100%)→BL(10%)
+    ? "polygon(0 0, 100% 0, 90% 100%, 0 100%)"
+    : "polygon(0 0, 100% 0, 100% 100%, 10% 100%)";
 
   return (
     <div style={ui.scoreShell}>
       <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
         <div style={{ ...ui.scoreValue, color: textColor, textShadow }}>{value}</div>
-        <div style={ui.scoreBtnsWrap}>
-          <button className="btn btn--muted" onClick={onDec}>-1</button>
-          <button className="btn btn--primary" onClick={onInc}>+1</button>
-        </div>
+        {showControls && (
+          <div style={ui.scoreBtnsWrap}>
+            <button className="btn btn--muted" onClick={onDec}>-1</button>
+            <button className="btn btn--primary" onClick={onInc}>+1</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -759,7 +970,7 @@ const COL_W   = "clamp(140px, 42vw, 360px)"; // largura de cada coluna
 const GAP     = 16;                           // espaçamento horizontal entre colunas (px)
 const TIMER_W = 260;                          // largura fixa do cronômetro (px)
 const ICON_SIZE = 140;
-const ICON_WRAP_H = ICON_SIZE + 20; // altura fixa do “slot” do escudo
+const ICON_WRAP_H = ICON_SIZE + 10; // altura fixa do “slot” do escudo
 
 const ui = {
   headerWrap: { margin: "8px 0 0" },
@@ -794,7 +1005,7 @@ const ui = {
     alignItems: "end",
     columnGap: 28,
     rowGap: 0,
-    margin: "8px auto 16px",
+    margin: "-24px auto 16px",
     width: "100%",
     maxWidth: `calc(${COL_W} * 2 + 28px)`, // opcional, combina com o container
   },
@@ -802,8 +1013,9 @@ const ui = {
   // célula do escudo
   iconCell: {
     display: "flex",
-    alignItems: "end",
+    alignItems: "flex-end",
     justifyContent: "center",
+    marginBottom: -12, // sobreposição no teamNameBar
   },
 
   // nome e thinbar SEMPRE com 100% da coluna e com padding “dentro”
@@ -811,19 +1023,18 @@ const ui = {
     width: "100%",
     boxSizing: "border-box",
     fontWeight: 900,
-    fontSize: 20,
-    padding: "10px 14px",
-    borderRadius: "14px 14px 0 0",
+    fontSize: 22,
+    padding: "14px 16px",
+    borderRadius: "16px 16px 0 0",
     textAlign: "center",
     margin: 0,
   },
   teamThinBar: {
     width: "100%",
-    height: 6,
+    height: 8,
     borderRadius: 0,
     margin: 0,
   },
-
   // célula do placar com largura fixa da coluna
   scoreCell: {
     width: COL_W,                 // <- trava a célula
@@ -846,22 +1057,23 @@ const ui = {
   scoreBox: {
     width: "100%",
     minWidth: "100%",
-    maxWidth: "100%",             // <- impede aumentar
-    boxSizing: "border-box",      // <- padding conta “dentro”
+    maxWidth: "100%",
+    boxSizing: "border-box",
     color: "#fff",
-    borderRadius: "0 0 14px 14px",
-    padding: "12px 14px",
-    minHeight: 200,
+    borderRadius: "0 0 16px 16px",
+    padding: "16px 16px",
+    minHeight: 220,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 8px 18px rgba(0,0,0,.20)",
-    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.08))",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 10px 22px rgba(0,0,0,.22)",
+    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.1))",
+    border: "1px solid rgba(255,255,255,.06)",
   },
 
   // números com tabular-nums (cada dígito ocupa a mesma largura)
-  scoreValue: {
-    fontSize: 120,
+   scoreValue: {
+    fontSize: "clamp(72px, 9vw, 128px)",
     lineHeight: 1,
     fontWeight: 900,
     textAlign: "center",
@@ -874,21 +1086,21 @@ const ui = {
   logoBelowImg: { height: 58, display: "block", margin: "0 auto 0" }, // um pouco maior e centralizada
 
   orangeLineWide: {
-    height: 8,
+    height: 10,
     background: "#ff7a00",
     margin: 0,
-    marginTop: 0,             // espaço do fundo do placar para a faixa laranja
+    marginTop: 0,
   },
 
   timerTrapWide: {
     display: "block",
-    width: TIMER_W,
+    width: "clamp(220px, 40vw, 320px)",
     margin: "0 auto",
     background: "#ff7a00",
     color: "#fff",
-    padding: "10px 0",
+    padding: "12px 0",
     clipPath: "polygon(8% 0, 92% 0, 80% 100%, 20% 100%)",
-    boxShadow: "0 6px 14px rgba(255,122,0,.28)",
+    boxShadow: "0 8px 18px rgba(255,122,0,.3)",
     textAlign: "center",
   },
 

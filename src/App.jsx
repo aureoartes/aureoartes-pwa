@@ -9,6 +9,7 @@ import CampeonatoEquipes from "./pages/CampeonatoEquipes";
 import CampeonatoPartidas from "./pages/CampeonatoPartidas";
 import Placar from "./pages/Placar";
 import CampeonatoTabela from "./pages/CampeonatoTabela";
+import CampeonatoChaveamento from "./pages/CampeonatoChaveamento";
 import TimeDetalhes from "./pages/TimeDetalhes"
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/partidas/:partidaId/placar" element={<Placar />} />
         <Route path="/placar" element={<Placar />} /> {/* modo avulso */}
         <Route path="/campeonatos/:id/classificacao" element={<CampeonatoTabela />} />
+        <Route path="/campeonatos/:id/chaveamento" element={<CampeonatoChaveamento />} />
         <Route path="/times/:id" element={<TimeDetalhes />} />
         {/* rota coringa opcional */}
         <Route path="*" element={<Home />} />
