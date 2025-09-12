@@ -21,7 +21,7 @@ const ETAPAS_ORDEM = [
 function normalizeEtapa(raw) {
   if (!raw) return "";
   let s = String(raw).toLowerCase();
-  s = s.normalize('NFD').replace(/[̀-ͯ]/g, ''); // remove acentos (faixa Unicode combinantes)
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove acentos (faixa Unicode combinantes)
   s = s.replace(/[^a-z0-9]+/g, '_'); // separadores -> _
   if (/prelim/.test(s) || /qualif/.test(s) || /play[-_ ]?in/.test(s)) return 'preliminar';
   if (/(64|sessenta_e_quatro).*avos/.test(s) || /^64-avos?$/.test(s)) return '64-avos';
@@ -94,6 +94,7 @@ function ConnectorLayer({ containerRef }) {
 
       // limpa
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+        if (!width || !height) return;
 
       // desenha ligações col -> col+1
       for (const [col, arr] of byCol) {

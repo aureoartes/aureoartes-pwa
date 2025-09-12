@@ -1,7 +1,5 @@
-// src/pages/CampeonatoPartidas.jsx (V3.1)
-// - Empate em mata-mata: só permitido se agregado na volta decidir; senão exige pênaltis
-// - Resultado agregado
-
+// src/pages/CampeonatoPartidas.jsx (V3.2)
+// - Sem agregados e penalties, pronto para próximo ajuste
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
@@ -134,7 +132,6 @@ export default function CampeonatoPartidas() {
     return Array.from(s.values()).sort((a, b) => a - b);
   }, [partidas]);
 
-  // ✅ Deve ficar ANTES de qualquer return condicional para não quebrar a ordem dos hooks
   // hasMataMata definido acima (antes dos returns)
   const hasMataMata = useMemo(() => Array.isArray(partidas) && partidas.some((p) => !!p.is_mata_mata), [partidas]);
 
@@ -266,7 +263,6 @@ export default function CampeonatoPartidas() {
             payload.penaltis_time_b = null;
           }
         } else {
-          // Sem ida encerrada, não dá para decidir por agregado → se a volta empatar no tempo, ainda assim exige pênaltis?
           // Regra: manter sem pênaltis agora; usuário pode salvar placar da volta normalmente.
           payload.penaltis_time_a = null;
           payload.penaltis_time_b = null;
@@ -463,23 +459,19 @@ export default function CampeonatoPartidas() {
                           <TeamIcon team={p.time_b} size={20} />
                         </div>
 
-                        <div className="list__subtitle" style={{ marginTop: 4 }}>
-                          {!p.is_mata_mata ? `Rodada ${p.rodada ?? "-"}` : p.etapa || ""}
-                          {p.grupo ? ` · Grupo ${p.grupo}` : ""}
-                          {!isNarrow && (
-                            <>
-                              {" · "}
-                              {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
-                              {p.local ? ` · ${p.local}` : ""}
-
-                            </>
-                          )}
-                        </div>
-
-                        {/* Linha extra: agregado/penaltis */}
-                        {p.is_mata_mata && (
-                          <>
-                            {/* Ida e volta: mostrar agregado e, se houver, pênaltis na volta */}
+                        <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+                          <div className="list__subtitle">
+                            {!p.is_mata_mata ? `Rodada ${p.rodada ?? "-"}` : p.etapa || ""}
+                            {p.grupo ? ` · Grupo ${p.grupo}` : ""}
+                            {!isNarrow && (
+                              <>
+                                {" · "}
+                                {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
+                                {p.local ? ` · ${p.local}` : ""}
+                              </>
+                            )}
+                          </div>
+                          <div className="text-muted" style={{ fontSize: 12 }}>
                             {camp?.ida_volta === true && p.perna === 2 && (() => {
                               const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
                               if (!ida) return null;
@@ -491,23 +483,16 @@ export default function CampeonatoPartidas() {
                               const voltaGolsParaIdaB = voltaAId === idaBId ? (p.gols_time_a || 0) : (voltaBId === idaBId ? (p.gols_time_b || 0) : 0);
                               const somaA = (ida.gols_time_a || 0) + voltaGolsParaIdaA;
                               const somaB = (ida.gols_time_b || 0) + voltaGolsParaIdaB;
-                              return (
-                                <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                                  Agregado: {somaA}-{somaB}
-                                  {(p.penaltis_time_a != null && p.penaltis_time_b != null) && (
-                                    <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
-                                  )}
-                                </div>
-                              );
+                              return <>Agregado: {somaA}-{somaB}</>;
                             })()}
-                            {/* Jogo único: só mostrar pênaltis quando houver */}
-                            {camp?.ida_volta === false && (p.penaltis_time_a != null && p.penaltis_time_b != null) && (
-                              <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                                Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}
-                              </div>
-                            )}
-                          </>
-                        )}
+                            {((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
+                              (p.penaltis_time_a != null && p.penaltis_time_b != null) && (
+                                <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                              )}
+                          </div>
+                        </div>
+
+                        {/* Seção Editar Partida */}
 
                         {/* Edição inline */}
                         {editandoId === p.id && (

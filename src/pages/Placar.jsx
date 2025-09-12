@@ -55,7 +55,15 @@ export default function Placar() {
   const intervalRef = useRef(null);
 
   const [canEnd, setCanEnd] = useState(true);
-
+  // Responsivo: mobile vertical
+  const [isMobilePortrait, setIsMobilePortrait] = useState(false);
+  useEffect(() => {
+    const check = () =>
+      setIsMobilePortrait(window.innerWidth <= 480 && window.innerHeight > window.innerWidth);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // ===== Carregamento =====
   useEffect(() => {
@@ -640,10 +648,43 @@ export default function Placar() {
       </div>
 
       {/* === Times + Placar === */}
-      <div style={ui.boardGrid}>
+      <div
+        style={{
+          ...ui.boardGrid,
+          ...(isMobilePortrait
+            ? { gridTemplateRows: "130px auto 6px auto", columnGap: 18, margin: "-18px auto 12px" }
+            : null),
+        }}
+      >
         {/* Escudos */}
-        <div style={ui.iconCell}>{renderTeamIcon(withColors(timeA, corA1, corA2, corADetalhe))}</div>
-        <div style={ui.iconCell}>{renderTeamIcon(withColors(timeB, corB1, corB2, corBDetalhe))}</div>
+        <div
+          style={{
+            ...ui.iconCell,
+            ...(isMobilePortrait
+              ? {
+                  marginBottom: -16,              // sobreposição maior no nome
+                  transform: "scale(0.85)",       // ícone ~15% menor
+                  transformOrigin: "bottom center"
+                }
+              : null),
+          }}
+        >
+          {renderTeamIcon(withColors(timeA, corA1, corA2, corADetalhe))}
+        </div>
+        <div
+          style={{
+            ...ui.iconCell,
+            ...(isMobilePortrait
+              ? {
+                  marginBottom: -16,              // sobreposição maior no nome
+                  transform: "scale(0.85)",       // ícone ~15% menor
+                  transformOrigin: "bottom center"
+                }
+              : null),
+          }}
+        >
+          {renderTeamIcon(withColors(timeB, corB1, corB2, corBDetalhe))}
+        </div>
 
         {/* Nomes */}
         <div style={{ 
@@ -674,10 +715,10 @@ export default function Placar() {
 
         {/* Placar */}
         <div style={ui.scoreCell}>
-          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} />
+          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} />
         </div>
         <div style={ui.scoreCell}>
-          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} />
+          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} />
         </div>
       </div>
 
@@ -907,14 +948,14 @@ function TeamBlock({ team }) {
 }
 
 /* ===== ScoreCard (polígono 4 faces conforme especificação) ===== */
-function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = "A", showControls = true }) {
+function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = "A", showControls = true, compact = false }) {
   const clip = side === "A"
     ? "polygon(0 0, 100% 0, 90% 100%, 0 100%)"
     : "polygon(0 0, 100% 0, 100% 100%, 10% 100%)";
 
   return (
     <div style={ui.scoreShell}>
-      <div style={{ ...ui.scoreBox, background: bg, clipPath: clip }}>
+      <div style={{ ...ui.scoreBox, ...(compact ? { minHeight: 190, padding: "12px 12px" } : null), background: bg, clipPath: clip }}>
         <div style={{ ...ui.scoreValue, color: textColor, textShadow }}>{value}</div>
         {showControls && (
           <div style={ui.scoreBtnsWrap}>

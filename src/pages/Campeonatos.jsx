@@ -303,18 +303,18 @@ export default function Campeonatos() {
               const showTabela = !isMataMata;
               const showPartidas = isMataMata;
               return (
-                <li key={c.id} className="list__item" style={{ paddingTop: 4, paddingBottom: 4, minHeight: "unset" }}>
+                <li key={c.id} className="list__item" style={{ paddingTop: 8, paddingBottom: 8, minHeight: "unset" }}>
                   <div className="list__left" style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.3 }}>
-                    <div className="list__title" style={{ textAlign: "left", marginBottom: 2, display: "block", width: "100%", fontSize: "1rem" }}>{c.nome}</div>
-                    <div className="list__subtitle" style={{ fontSize: "0.8rem", color: "#555", textAlign: "left", marginTop: 2, display: "block", width: "100%" }}>
+                    <div className="list__title" style={{ textAlign: "left", marginBottom: 0, display: "block", width: "100%", fontSize: "1rem" }}>{c.nome}</div>
+                    <div className="list__subtitle" style={{ fontSize: "0.8rem", color: "#555", textAlign: "left", marginTop: 0, display: "block", width: "100%" }}>
                       {c.categoria} · {labelFormato(c.formato)} · {c.numero_equipes} equipes
                     </div>
                   </div>
 
                   {/* Desktop actions */}
                   <div className="row hide-sm" style={{ gap: 6 }}>
-                    <button className="btn btn--orange" onClick={() => abrirEditar(c)}>Editar</button>
-                    <button className="btn btn--red" onClick={() => excluir(c)}>Excluir</button>
+                    <button className="btn btn--sm btn--orange" onClick={() => abrirEditar(c)}>Editar</button>
+                    <button className="btn btn--sm btn--red" onClick={() => excluir(c)}>Excluir</button>
                     <button className="btn btn--muted btn--sm" onClick={() => navigate(`/campeonatos/${c.id}/equipes`)}>Equipes</button>
                     {showTabela && (
                       <button className="btn btn--muted btn--sm" onClick={() => navigate(`/campeonatos/${c.id}/classificacao`)} disabled={!tem}>Tabela</button>
