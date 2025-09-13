@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
-import { USUARIO_ID } from "../config/appUser";
+import { getUsuarioId } from "../config/appUser";
+
+const USUARIO_ID = getUsuarioId();
 
 function labelFormato(v) {
   if (v === "pontos_corridos") return "Pontos Corridos";

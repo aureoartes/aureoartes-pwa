@@ -6,7 +6,9 @@ import { getContrastShadow } from "../utils/colors";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
-import { USUARIO_ID } from "../config/appUser";
+import { getUsuarioId } from "../config/appUser";
+
+const USUARIO_ID = getUsuarioId();
 
 // Hook de responsividade para mobile vertical
 function useIsNarrow(maxWidth = 520) {

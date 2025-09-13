@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
-import { NavLink, Link } from "react-router-dom";
-import logo from "../assets/logo_aureoartes.png"; // ajuste se o arquivo tiver outro nome
+import { NavLink, Link, useNavigate } from "react-router-dom";
+import logo from "../assets/logo_aureoartes.png";
+import { isLogged, clearUsuario } from "../config/appUser";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const navigate = useNavigate();
+  const logged = isLogged();
 
+  const isDesktop = () => window.innerWidth >= 992;
+  const [showDesktop, setShowDesktop] = useState(isDesktop());
+
+  useEffect(() => {
+    const onResize = () => setShowDesktop(isDesktop());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+    
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll);
@@ -28,7 +40,6 @@ export default function Navbar() {
     boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
   };
 
-  // Botão de destaque para o PLACAR (desktop)
   const placarBtnStyle = {
     padding: "10px 14px",
     borderRadius: 12,
@@ -37,8 +48,6 @@ export default function Navbar() {
     fontWeight: 800,
     textDecoration: "none",
     boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-    transform: "translateZ(0)",
-    transition: "transform 120ms ease, box-shadow 120ms ease",
   };
 
   const placarBtnActive = {
@@ -88,20 +97,15 @@ export default function Navbar() {
     textDecoration: "none",
   };
 
-  // media query simples para menu desktop
-  const isDesktop = () => window.innerWidth >= 768;
-  const [showDesktop, setShowDesktop] = useState(isDesktop());
-  useEffect(() => {
-    const onResize = () => setShowDesktop(isDesktop());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  const handleLogout = () => {
+    clearUsuario();
+    navigate("/", { replace: true });
+  };
 
   return (
     <header style={containerStyle}>
       <nav style={navInner}>
         <div style={row}>
-          {/* Logo + Nome */}
           <Link to="/" style={brand}>
             <img
               src={logo}
@@ -119,47 +123,23 @@ export default function Navbar() {
             <span style={brandText}>AUREOARTES</span>
           </Link>
 
-          {/* Desktop menu */}
           {showDesktop ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <NavLink to="/" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
-                Home
-              </NavLink>
-
-              {/* PLACAR com destaque */}
-              <NavLink
-                to="/placar"
-                style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}
-              >
-                Placar
-              </NavLink>
-
-              <NavLink to="/times" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
-                Times
-              </NavLink>
-
-              <NavLink
-                to="/campeonatos"
-                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
-              >
-                Campeonatos
-              </NavLink>
-
-              <a
-                href="https://www.aureoartes.com.br/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={lojaBtnStyle}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M7 7h10v10H7z" stroke="currentColor" strokeWidth="2" />
-                  <path d="M13 7h4v4M11 17H7v-4" stroke="currentColor" strokeWidth="2" />
-                </svg>
-                Loja
-              </a>
+              <NavLink to="/" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Home</NavLink>
+              <NavLink to="/placar" style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}>Placar</NavLink>
+              <NavLink to="/times" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Times</NavLink>
+              <NavLink to="/campeonatos" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Campeonatos</NavLink>
+              <a href="https://www.aureoartes.com.br/" target="_blank" rel="noopener noreferrer" style={lojaBtnStyle}>Loja</a>
+              {!logged ? (
+                <Link to="/login" style={{ ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 700 }}>Entrar</Link>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <NavLink to="/perfil" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Perfil</NavLink>
+                  <button onClick={handleLogout} className="btn btn--muted" style={{ padding: "6px 10px" }}>Sair</button>
+                </div>
+              )}
             </div>
           ) : (
-            // Mobile hamburger
             <button aria-label="Abrir menu" onClick={() => setOpen((v) => !v)} style={mobileToggle}>
               {open ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -174,44 +154,22 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile menu */}
         {!showDesktop && (
           <div style={mobileMenu}>
             <div style={{ display: "grid", gap: 6 }}>
-              <NavLink to="/" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
-                Home
-              </NavLink>
-              {/* Placar vem logo depois de Home no mobile */}
-              <NavLink
-                to="/placar"
-                onClick={() => setOpen(false)}
-                style={({ isActive }) =>
-                  isActive
-                    ? { ...activeLinkStyle, background: "#fff", color: "#d95500", fontWeight: 800 }
-                    : { ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 800 }
-                }
-              >
-                Placar
-              </NavLink>
-              <NavLink to="/times" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>
-                Times
-              </NavLink>
-              <NavLink
-                to="/campeonatos"
-                onClick={() => setOpen(false)}
-                style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}
-              >
-                Campeonatos
-              </NavLink>
-              <a
-                href="https://www.aureoartes.com.br/"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setOpen(false)}
-                style={{ ...lojaBtnStyle, display: "block", marginTop: 6, textAlign: "center" }}
-              >
-                Loja
-              </a>
+              <NavLink to="/" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Home</NavLink>
+              <NavLink to="/placar" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}>Placar</NavLink>
+              <NavLink to="/times" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Times</NavLink>
+              <NavLink to="/campeonatos" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Campeonatos</NavLink>
+              <a href="https://www.aureoartes.com.br/" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)} style={{ ...lojaBtnStyle, display: "block", marginTop: 6, textAlign: "center" }}>Loja</a>
+              {!logged ? (
+                <Link to="/login" onClick={() => setOpen(false)} style={{ ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 700 }}>Entrar</Link>
+              ) : (
+                <>
+                  <NavLink to="/perfil" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Perfil</NavLink>
+                  <button onClick={() => { setOpen(false); handleLogout(); }} className="btn btn--muted" style={{ padding: "6px 10px" }}>Sair</button>
+                </>
+              )}
             </div>
           </div>
         )}

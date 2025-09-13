@@ -5,14 +5,17 @@ import supabase from "../lib/supabaseClient";
 import { getContrastShadow } from "../utils/colors";
 import ColorSwatchSelect from "../components/ColorSwatchSelect";
 import QuickAddInline from "../components/QuickAddInline";
-import { USUARIO_ID } from "../config/appUser";
+import { getUsuarioId } from "../config/appUser";
+
+const USUARIO_ID = getUsuarioId();
 
 export default function Times() {
   // Listas
   const [times, setTimes] = useState([]);
   const [regioes, setRegioes] = useState([]);
+  const [categorias, setCategorias] = useState([]);
 
-  // Filtros/ordenacao
+  // Filtros/ordenação
   const [ordenacao, setOrdenacao] = useState("alfabetica");
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
 
@@ -21,7 +24,7 @@ export default function Times() {
   const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
   const [abreviacao, setAbreviacao] = useState("");
-  const [categoria, setCategoria] = useState("Futebol de Botão");
+  const [categoriaId, setCategoriaId] = useState(null);
   const [escudoUrl, setEscudoUrl] = useState("");
   const [cor1, setCor1] = useState("#FFFFFF");
   const [cor2, setCor2] = useState("#000000");
@@ -37,7 +40,7 @@ export default function Times() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchTimes(), fetchRegioes()]);
+      await Promise.all([fetchTimes(), fetchRegioes(), fetchCategorias()]);
       setLoading(false);
     })();
   }, []);
@@ -60,11 +63,23 @@ export default function Times() {
     setRegioes(data || []);
   }
 
+  async function fetchCategorias() {
+    const { data } = await supabase
+      .from("categorias")
+      .select("id, descricao")
+      .order("descricao", { ascending: true });
+    setCategorias(data || []);
+  }
+
+  function getCategoriaPadraoId() {
+    return categorias.find((c) => (c.descricao || "").toLowerCase() === "futebol de botão")?.id ?? null;
+  }
+
   function resetForm() {
     setEditandoId(null);
     setNome("");
     setAbreviacao("");
-    setCategoria("Futebol de Botão");
+    setCategoriaId(getCategoriaPadraoId()); // padrão "Futebol de Botão", se existir
     setEscudoUrl("");
     setCor1("#FFFFFF");
     setCor2("#000000");
@@ -76,7 +91,7 @@ export default function Times() {
     setEditandoId(t.id);
     setNome(t.nome || "");
     setAbreviacao(t.abreviacao || "");
-    setCategoria(t.categoria || "Futebol de Botão");
+    setCategoriaId(t.categoria_id ?? getCategoriaPadraoId());
     setEscudoUrl(t.escudo_url || "");
     setCor1(t.cor1 || "#FFFFFF");
     setCor2(t.cor2 || "#000000");
@@ -104,7 +119,7 @@ export default function Times() {
       usuario_id: USUARIO_ID,
       nome,
       abreviacao,
-      categoria,
+      categoria_id: categoriaId || null,
       escudo_url: escudoUrl || null,
       cor1: cor1 || "#FFFFFF",
       cor2: cor2 || "#000000",
@@ -147,7 +162,7 @@ export default function Times() {
       return;
     }
     await fetchRegioes();
-    setRegiaoId(data.id);         // já seleciona a recém-criada no form
+    setRegiaoId(data.id); // já seleciona a recém-criada no form
   }
 
   // Filtro + ordenação
@@ -211,8 +226,11 @@ export default function Times() {
       {/* Cadastro/edição (oculto por padrão) */}
       {abrirCadastro && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12}}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
+            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
+              Fechar
+            </button>
           </div>
 
           <div style={{ padding: 12 }}>
@@ -220,17 +238,39 @@ export default function Times() {
               <div className="grid grid-2">
                 <div className="field">
                   <label className="label">Nome</label>
-                  <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} maxLength={30} required />
+                  <input
+                    className="input"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value.slice(0, 30))}
+                    maxLength={30}
+                    required
+                  />
                 </div>
 
                 <div className="field">
                   <label className="label">Abreviação (sigla)</label>
-                  <input className="input" value={abreviacao} onChange={(e) => setAbreviacao(e.target.value)} maxLength={5} required placeholder="Ex.: BRA" />
+                  <input
+                    className="input"
+                    value={abreviacao}
+                    onChange={(e) => setAbreviacao(e.target.value.slice(0, 5).toUpperCase())}
+                    maxLength={5}
+                    placeholder="Ex.: ABC"
+                  />
                 </div>
 
                 <div className="field">
                   <label className="label">Categoria</label>
-                  <input className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="Ex.: Futebol de Botão" />
+                  <select
+                    className="select"
+                    value={categoriaId || ""}
+                    onChange={(e) => setCategoriaId(e.target.value)}
+                    required
+                  >
+                    <option value="">Selecione…</option>
+                    {categorias.map((c) => (
+                      <option key={c.id} value={c.id}>{c.descricao}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="field">
@@ -272,7 +312,12 @@ export default function Times() {
 
                 <div className="field">
                   <label className="label">Escudo (URL) (opcional)</label>
-                  <input className="input" value={escudoUrl} onChange={(e) => setEscudoUrl(e.target.value)} placeholder="https://..." />
+                  <input
+                    className="input"
+                    value={escudoUrl}
+                    onChange={(e) => setEscudoUrl(e.target.value)}
+                    placeholder="https://..."
+                  />
                 </div>
 
                 <ColorSwatchSelect label="Cor 1" value={cor1} onChange={setCor1} />
@@ -304,6 +349,7 @@ export default function Times() {
             const c1 = t.cor1 || "#FFFFFF";
             const c2 = t.cor2 || "#000000";
             const cd = t.cor_detalhe || "#000000";
+            const categoriaDesc = categorias.find((c) => c.id === t.categoria_id)?.descricao || "—";
 
             return (
               <div key={t.id} className="card team-card">
@@ -327,7 +373,7 @@ export default function Times() {
                 <div className="team-card__info team-card__info--with-badge">
                   <div>
                     <div className="team-card__title">{t.nome}</div>
-                    <div className="team-card__subtitle">{t.categoria || "—"}</div>
+                    <div className="team-card__subtitle">{categoriaDesc}</div>
                     {t.regiao_id && (
                       <div className="text-muted" style={{ marginTop: 4 }}>
                         Região: {regioes.find((r) => r.id === t.regiao_id)?.descricao || "—"}

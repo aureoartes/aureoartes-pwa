@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
-import { USUARIO_ID } from "../config/appUser";
+import { getUsuarioId } from "../config/appUser";
+
+const USUARIO_ID = getUsuarioId();
 
 function normalizeHexColor(c, fallback = "#e0e0e0") {
   if (!c || typeof c !== "string") return fallback;

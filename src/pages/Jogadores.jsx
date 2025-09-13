@@ -5,7 +5,9 @@ import supabase from "../lib/supabaseClient";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
-import { USUARIO_ID } from "../config/appUser";
+import { getUsuarioId } from "../config/appUser";
+
+const USUARIO_ID = getUsuarioId();
 const SEM_EQUIPE = "__none__";
 
 /* Hook para detectar viewport estreita (mobile vertical) */

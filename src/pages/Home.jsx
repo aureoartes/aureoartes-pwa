@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
 import TeamIcon from "../components/TeamIcon";
 import StoreBanner from "../components/StoreBanner";
+import { isLogged } from "../config/appUser";
 
 export default function Home() {
+  const logged = isLogged();
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#FFF6EF,#FFE7D4)" }}>
       {/* HERO – tons de laranja, CTA único */}
@@ -52,57 +54,71 @@ export default function Home() {
 
       {/* LOJA */}
       <StoreBanner
-      items={[
-        {
-          key: "oferta1",
-          title: "Times artesanais",
-          subtitle: "Coleções clássicas e personalizadas",
-          href: "https://www.aureoartes.com.br/",
-          // imageUrl: "/assets/produtos/times.png", // opcional
-          bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
-          border: "#ffd6ad",
-          badge: "Novidades",
-        },
-        {
-          key: "oferta2",
-          title: "Acessórios",
-          subtitle: "Palhetas, dadinhos e goleiros",
-          href: "https://www.aureoartes.com.br/",
-          // imageUrl: "/assets/produtos/acessorios.png",
-          bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)",
-          border: "#ffddb8",
-        },
-        {
-          key: "oferta3",
-          title: "Promoções da semana",
-          subtitle: "Ofertas por tempo limitado",
-          href: "https://www.aureoartes.com.br/",
-          bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)",
-          border: "#ffcfa6",
-          badge: "Oferta",
-        },
-      ]}
-      intervalMs={6000}
-    />
-    
-      {/* ACESSOS – Times, Campeonatos e Loja */}
-      <section className="container" style={{ padding: "20px 16px 8px" }}>
-        <div className="grid grid-2">
-          {/* Times */}
-          <div className="card card--soft" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Times</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Gerencie escudos, cores e elencos.</div>
-            <Link to="/times" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus times</Link>
-          </div>
+        items={[
+          {
+            key: "oferta1",
+            title: "Times artesanais",
+            subtitle: "Coleções clássicas e personalizadas",
+            href: "https://www.aureoartes.com.br/",
+            bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
+            border: "#ffd6ad",
+            badge: "Novidades",
+          },
+          {
+            key: "oferta2",
+            title: "Acessórios",
+            subtitle: "Palhetas, dadinhos e goleiros",
+            href: "https://www.aureoartes.com.br/",
+            bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)",
+            border: "#ffddb8",
+          },
+          {
+            key: "oferta3",
+            title: "Promoções da semana",
+            subtitle: "Ofertas por tempo limitado",
+            href: "https://www.aureoartes.com.br/",
+            bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)",
+            border: "#ffcfa6",
+            badge: "Oferta",
+          },
+        ]}
+        intervalMs={6000}
+      />
 
-          {/* Campeonatos */}
-          <div className="card card--soft" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Campeonatos</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Crie tabelas e acompanhe fases.</div>
-            <Link to="/campeonatos" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus campeonatos</Link>
+      {/* ACESSOS – Times e Campeonatos condicionais */}
+      {logged ? (
+        <section className="container" style={{ padding: "20px 16px 8px" }}>
+          <div className="grid grid-2">
+            {/* Times */}
+            <div className="card card--soft" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>Times</div>
+              <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Gerencie escudos, cores e elencos.</div>
+              <Link to="/times" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus times</Link>
+            </div>
+
+            {/* Campeonatos */}
+            <div className="card card--soft" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>Campeonatos</div>
+              <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Crie tabelas e acompanhe fases.</div>
+              <Link to="/campeonatos" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus campeonatos</Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section className="container" style={{ padding: "20px 16px 8px" }}>
+          <div className="card card--soft" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Entre para acessar tudo</div>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+              Sem login você acessa apenas o <strong>Placar</strong> e a <strong>Loja</strong>.<br />
+              Faça login para gerenciar <strong>Times</strong>, <strong>Campeonatos</strong> e seu <strong>Perfil</strong>.
+            </p>
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <Link to="/login" className="btn btn--primary">Entrar</Link>
+              <Link to="/placar" className="btn btn--muted">Abrir placar</Link>
+            </div>
+          </div>
+        </section>
+      )}
 
     </div>
   );
