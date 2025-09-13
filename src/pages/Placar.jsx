@@ -1,6 +1,7 @@
-// src/pages/Placar.jsx (V14)
+// src/pages/Placar.jsx (V15)
 //Ajuste no salvamento dos penaltis
 //resolvendo tela branca no mobile
+//Ajustes para avulso
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
@@ -8,6 +9,7 @@ import supabase from "../lib/supabaseClient";
 import TeamIcon from "../components/TeamIcon";
 import { getContrastShadow } from "../utils/colors";
 import logo from "../assets/logo_aureoartes.png";
+import ColorSwatchSelect from "../components/ColorSwatchSelect";
 
 export default function Placar() {
   const { partidaId } = useParams();
@@ -58,6 +60,13 @@ export default function Placar() {
   const [canEnd, setCanEnd] = useState(true);
   // Responsivo: mobile vertical
   const [isMobilePortrait, setIsMobilePortrait] = useState(false);
+  // === Modo Placar Avulso ===
+  const [showAvulsoEdit, setShowAvulsoEdit] = useState(false);
+  const [desempate, setDesempate] = useState("amistoso"); 
+  // "amistoso" | "prorrogacao" | "penaltis"
+  // Considera "iniciada" se já não está no 1T, ou houve gol, ou cronômetro andou, ou está rodando
+  const started = (fase !== "1T") || (golsA + golsB > 0) || (segRestantes < durTempo * 60) || rodando;
+
   useEffect(() => {
     const check = () =>
       setIsMobilePortrait(window.innerWidth <= 480 && window.innerHeight > window.innerWidth);
@@ -77,12 +86,38 @@ export default function Placar() {
   useEffect(() => {
     if (isAvulso) {
       const tempoMin = 10;
-      setDurTempo(tempoMin); setUsaProrrogacao(false); setDurProrro(5); setQtdPen(5);
+
+      // Zera placares e pênaltis
+      setGolsA(0); setGolsB(0);
+      resetPenalties();
+
+      // Zera times, siglas e escudos
+      setTimeA({ id: null, nome: "Time A", abrev: "", escudo_url: null });
+      setTimeB({ id: null, nome: "Time B", abrev: "", escudo_url: null });
+
+      // Restaura cores padrão (avulso)
+      setCorA1("#ff7a00"); setCorA2("#ffffff"); setCorADetalhe("#000000");
+      setCorB1("#ff7a00"); setCorB2("#ffffff"); setCorBDetalhe("#000000");
+
+      // Reseta fase/tempo/rodando/encerrada
+      setDurTempo(tempoMin);
+      setUsaProrrogacao(false);
+      setDurProrro(5);
+      setQtdPen(5);
       setEncerrada(false);
       setFase("1T");
       setSegRestantes(tempoMin * 60);
       setRodando(false);
+
+      // Fecha painel de edição do avulso (se existir)
+      try { setShowAvulsoEdit(false); } catch {}
+
+      // Ajusta data/hora local default
       if (!dataHora) setDataHora(nowLocalForInput());
+
+      // Garante scroll no topo
+      try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch {}
+
       return;
     }
     (async () => {
@@ -141,6 +176,16 @@ export default function Placar() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAvulso, partidaId]);
+
+  useEffect(() => {
+    // carrega no topo
+    try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch {}
+  }, []);
+
+  // também quando muda o contexto de partida:
+  useEffect(() => {
+    try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch {}
+  }, [partidaId, isAvulso]);
 
   // ===== Timer =====
   useEffect(() => {
@@ -206,12 +251,26 @@ export default function Placar() {
 
           if (fase === "PR2" && !encerrada) {
             showToast("⏱️ Fim da 2ª prorrogação!");
+
+            // AVULSO: se continuar empatado, ir para pênaltis
+            if (isAvulso && golsA === golsB) {
+              setFase("PEN");
+              setSegRestantes(0);      // <-- impede NaN:NaN no cronômetro
+              // (opcional) preparar estado de pênaltis
+              setPenTurn("A"); setPenAlt(false); setPenFinished(false);
+              return;
+            }
+
+            // CAMPEONATO: regra existente
             if (isMataMata && golsA === golsB) {
               const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
               setQtdPen(penReg);
               setFase("PEN");
+              setSegRestantes(0);      // <-- garante numérico
+              setPenTurn("A"); setPenAlt(false); setPenFinished(false);
             }
           }
+
         }
         return Math.max(0, s - 1);
       });
@@ -219,10 +278,34 @@ export default function Placar() {
     return () => clearInterval(intervalRef.current);
   }, [rodando, fase, encerrada, isMataMata, durTempo, durProrro, golsA, golsB, camp]);
 
-  // ===== Auto-encerrar em pontos corridos ao fim do 2º tempo =====
+  // ===== Auto-encerrar: pontos corridos & AVULSO =====
   const autoEndRef = useRef(false);
   useEffect(() => {
     if (!rodando && segRestantes === 0) {
+      // AVULSO: decide pelo seletor "desempate"
+      if (isAvulso && fase === "2T" && !encerrada) {
+        if (golsA === golsB) {
+          if (desempate === "prorrogacao") {
+            showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada.");
+            setFase("PR1");
+            setSegRestantes(Math.max(1, Math.round((durProrro || 5) * 60)));
+            return;
+          }
+          if (desempate === "penaltis") {
+            showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis.");
+            setFase("PEN");
+            return;
+          }
+          setEncerrada(true);
+          showToast("🏁 Amistoso encerrado (empate).");
+          return;
+        }
+        setEncerrada(true);
+        showToast("🏁 Amistoso encerrado.");
+        return;
+      }
+
+      // PONTOS CORRIDOS (campeonato não-mata-mata)
       if (!isMataMata && fase === "2T" && !encerrada && !autoEndRef.current) {
         autoEndRef.current = true;
         showToast("🏁 Partida encerrada (pontos corridos)");
@@ -230,7 +313,7 @@ export default function Placar() {
       }
     }
     if (segRestantes > 0) autoEndRef.current = false;
-  }, [segRestantes, rodando, fase, isMataMata, encerrada]);
+  }, [segRestantes, rodando, fase, isMataMata, encerrada, isAvulso, desempate, durProrro, golsA, golsB]);
 
   // Função utilitária para mesclar cores no modo avulso
   function withColors(team, cor1, cor2, cor_detalhe) {
@@ -250,12 +333,13 @@ export default function Placar() {
     return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
   }
   
-  const [corA1, setCorA1] = useState("#e41010");
-  const [corA2, setCorA2] = useState("#101010");
-  const [corADetalhe, setCorADetalhe] = useState("#FFFFFF");
-  const [corB1, setCorB1] = useState("#101010");
-  const [corB2, setCorB2] = useState("#FFFFFF");
-  const [corBDetalhe, setCorBDetalhe] = useState("#FFFFFF");
+  // CORES PADRÃO (agora laranja/branco/preto p/ ambos)
+  const [corA1, setCorA1] = useState("#ff7a00");
+  const [corA2, setCorA2] = useState("#ffffff");
+  const [corADetalhe, setCorADetalhe] = useState("#000000");
+  const [corB1, setCorB1] = useState("#ffffff");
+  const [corB2, setCorB2] = useState("#ff7a00");
+  const [corBDetalhe, setCorBDetalhe] = useState("#000000");
 
   const [nomeLivreA, setNomeLivreA] = useState("Time A");
   const [nomeLivreB, setNomeLivreB] = useState("Time B");
@@ -385,6 +469,7 @@ export default function Placar() {
     if (error) { showToast("❌ Erro ao salvar Local/Data"); return; }
     showToast("✅ Local e Data/Hora salvos!");
   }
+  
   async function reiniciarPartida() {
     // Reset local
     setGolsA(0); setGolsB(0);
@@ -426,6 +511,18 @@ export default function Placar() {
     }
   }
 
+  function encerrarPartidaImediata() {
+    try { if (intervalRef.current) clearInterval(intervalRef.current); } catch {}
+    setRodando(false);
+    setEncerrada(true);
+    setSegRestantes(0);
+    // Se estiver nos pênaltis, força estado finalizado também:
+    setPenFinished(true);
+    // Se existir painel de edição do avulso, fecha:
+    try { setShowAvulsoEdit(false); } catch {}
+    showToast("🏁 Partida encerrada (avulso).");
+  }
+ 
   // ===== Ajusta fase e carrega duração (preferindo as configs do campeonato) =====
   function setFaseComDuracao(novaFase) {
     setFase(novaFase);
@@ -614,6 +711,15 @@ export default function Placar() {
     if (fase === "1T") { setFaseComDuracao("2T"); return; }
 
     if (fase === "2T") {
+      // AVULSO
+      if (isAvulso) {
+        if (golsA === golsB) {
+          if (desempate === "prorrogacao") { setFaseComDuracao("PR1"); return; }
+          if (desempate === "penaltis") { setFase("PEN"); return; }
+          setEncerrada(true); showToast("🏁 Amistoso encerrado (empate)."); return;
+        }
+        setEncerrada(true); showToast("🏁 Amistoso encerrado."); return;
+      }
       if (!isMataMata) { salvarVinculado(true); return; }
       if (precisaDesempateApos2T()) {
         if (camp?.prorrogacao) {
@@ -635,14 +741,38 @@ export default function Placar() {
     if (fase === "PR1") { setFaseComDuracao("PR2"); return; }
 
     if (fase === "PR2") {
+      // --- AVULSO: empate vai para pênaltis; se houver vencedor, encerra
+      if (isAvulso) {
+        if (golsA === golsB) {
+          setFase("PEN");
+          setSegRestantes(0);    // <-- evita NaN no cronômetro
+          setRodando(false);
+          setPenTurn("A"); setPenAlt(false); setPenFinished(false);
+          showToast("⏱️ Prorrogação encerrada. Vamos aos pênaltis.");
+          return;
+        }
+        // tem vencedor no avulso após PR2 -> encerra na hora
+        setEncerrada(true);
+        setRodando(false);
+        setSegRestantes(0);
+        showToast("🏁 Partida encerrada (avulso).");
+        return;
+      }
+
+      // --- CAMPEONATO: mantém sua lógica existente
       if (isMataMata) {
         const agg = placarAgregado();
         if (agg.a === agg.b) {
           const penReg = Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || 5;
-          setQtdPen(penReg); setFase("PEN"); return;
+          setQtdPen(penReg);
+          setFase("PEN");
+          setSegRestantes(0);
+          setPenTurn("A"); setPenAlt(false); setPenFinished(false);
+          return;
         }
       }
-      salvarVinculado(true); return;
+      salvarVinculado(true); 
+      return;
     }
   }
 
@@ -654,8 +784,10 @@ export default function Placar() {
   // ===== Render =====
   return (
     <div className="container" style={{ maxWidth: `calc(${COL_W} * 2 + ${GAP * 2}px)`, margin: "0 auto", padding: "0 8px" }}>
+    
       {/* Seção topo com nome do campeonato ou Amistoso */}
       <div style={{
+        position: "relative",
         background: "linear-gradient(180deg, #ff8a20, #ff7a00)",
         padding: 14,
         textAlign: "center",
@@ -666,7 +798,174 @@ export default function Placar() {
         <span style={{ color: "#fff", fontSize: 22, fontWeight: 900, letterSpacing: 0.3 }}>
           {isAvulso ? "Amistoso" : camp?.nome || "Campeonato"}
         </span>
+
+        {/* Botão editar: só no avulso */}
+        {isAvulso && (
+          <button
+            className="btn"
+            title={started ? "Edição indisponível após iniciar a partida" : (showAvulsoEdit ? "Fechar edição" : "Editar partida")}
+            onClick={() => !started && setShowAvulsoEdit(v => !v)}
+            disabled={started}
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "#fff",
+              color: "#ff7a00",
+              fontWeight: 800,
+              opacity: started ? 0.6 : 1
+            }}
+          >
+            ✎
+          </button>
+        )}
       </div>
+
+      {/* Painel de Personalização (Avulso) */}
+      {isAvulso && showAvulsoEdit && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>
+            {/* TIME A */}
+            <div style={{ minWidth: 260, flex: 1 }}>
+              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Time A</div>
+
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  className="input"
+                  placeholder="Nome do Time A"
+                  value={timeA.nome}
+                  onChange={e => setTimeA(t => ({ ...t, nome: e.target.value }))}
+                  disabled={started}
+                  style={{ flex: 2 }}
+                />
+                <input
+                  className="input"
+                  placeholder="SIG"
+                  value={timeA.abrev || ""}
+                  onChange={e => setTimeA(t => ({ ...t, abrev: e.target.value.slice(0, 3).toUpperCase() }))}
+                  disabled={started}
+                  style={{ width: 80, textTransform: "uppercase", textAlign: "center", fontWeight: 800 }}
+                />
+              </div>
+
+              {/* Cor 1 / Cor 2 / Detalhe (A) — labels mostram a cor */}
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label="Cor 1 (A)" value={corA1} onChange={setCorA1} disabled={started} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label= "Cor 2 (A)" value={corA2} onChange={setCorA2} disabled={started} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label= "Cor Detalhe (A)" value={corADetalhe} onChange={setCorADetalhe} disabled={started} />
+              </div>
+            </div>
+
+            {/* TIME B */}
+            <div style={{ minWidth: 260, flex: 1 }}>
+              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Time B</div>
+
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  className="input"
+                  placeholder="Nome do Time B"
+                  value={timeB.nome}
+                  onChange={e => setTimeB(t => ({ ...t, nome: e.target.value }))}
+                  disabled={started}
+                  style={{ flex: 2 }}
+                />
+                <input
+                  className="input"
+                  placeholder="SIG"
+                  value={timeB.abrev || ""}
+                  onChange={e => setTimeB(t => ({ ...t, abrev: e.target.value.slice(0, 3).toUpperCase() }))}
+                  disabled={started}
+                  style={{ width: 80, textTransform: "uppercase", textAlign: "center", fontWeight: 800 }}
+                />
+              </div>
+
+              {/* Cor 1 / Cor 2 / Detalhe (B) — labels mostram a cor */}
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label= "Cor 1 (B)" value={corB1} onChange={setCorB1} disabled={started} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label= "Cor 2 (B)" value={corB2} onChange={setCorB2} disabled={started} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <ColorSwatchSelect label= "Cor Detalhe (B)" value={corBDetalhe} onChange={setCorBDetalhe} disabled={started} />
+              </div>
+            </div>
+          </div>
+
+          {/* Configurações da Partida (avulso) */}
+          <div style={{ marginTop: 14 }}>
+            <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Configurações da Partida</div>
+            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+              {/* Desempate */}
+              <select
+                className="input"
+                value={desempate}
+                onChange={(e) => setDesempate(e.target.value)}
+                disabled={started}
+                style={{ minWidth: 240 }}
+                title="Critério em caso de empate no tempo normal"
+              >
+                <option value="amistoso">Desempate: Amistoso (permite empate)</option>
+                <option value="prorrogacao">Desempate: Prorrogação</option>
+                <option value="penaltis">Desempate: Pênaltis direto</option>
+              </select>
+
+              {/* Tempo de partida (min) — atualiza o cronômetro no 1T/2T se pausado */}
+              <div className="row" style={{ gap: 8 }}>
+                <label className="label" style={{ alignSelf: "center" }}>Tempo de partida (min):</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  value={durTempo}
+                  onChange={e => {
+                    const novo = Math.max(1, Number(e.target.value || 1));
+                    setDurTempo(novo);
+                    if (!rodando && (fase === "1T" || fase === "2T")) {
+                      setSegRestantes(novo * 60);
+                    }
+                  }}
+                  disabled={started}
+                  style={{ width: 100 }}
+                />
+              </div>
+
+              {/* Prorrogação (min) */}
+              <div className="row" style={{ gap: 8 }}>
+                <label className="label" style={{ alignSelf: "center" }}>Prorrogação (min):</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  value={durProrro}
+                  onChange={e => setDurProrro(Math.max(1, Number(e.target.value || 1)))}
+                  disabled={started || desempate !== "prorrogacao"}
+                  style={{ width: 100 }}
+                />
+              </div>
+
+              {/* Pênaltis regulares */}
+              <div className="row" style={{ gap: 8 }}>
+                <label className="label" style={{ alignSelf: "center" }}>Pênaltis (regulares):</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  value={qtdPen}
+                  onChange={e => setQtdPen(Math.max(1, Number(e.target.value || 1)))}
+                  disabled={started}
+                  style={{ width: 100 }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* === Times + Placar === */}
       <div
@@ -821,7 +1120,7 @@ export default function Placar() {
             {!rodando ? (
               <button
                 className="btn btn--primary"
-                onClick={() => setRodando(true)}
+                onClick={() => { setShowAvulsoEdit(false); setRodando(true);}}
                 style={isMobilePortrait ? { padding: "8px 10px", fontSize: 14 } : undefined}
               >
                 Iniciar
@@ -953,28 +1252,34 @@ export default function Placar() {
           <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} onFocus={() => { if (!dataHora) { const agora = new Date(); setDataHora(agora.toISOString().slice(0,16)); } }} />
         </div>
         <div className="row" style={{ gap: 12, justifyContent: "center" }}>
+          {/* Esconde no avulso */}
+          {!isAvulso && (
+            <button
+              className="btn"
+              style={{ background: "#ff7a00", color: "#fff" }}
+              onClick={salvarLocalHorario}
+            >
+              Salvar Local
+            </button>
+          )}
+
           <button
-            className="btn"
-            style={{ background: "#ff7a00", color: "#fff" }}
-            onClick={salvarLocalHorario}
-          >
-            Salvar Local
-          </button>
-          <button              
             className="btn"
             style={{ background: "#d93025", color: "#fff" }}
             onClick={reiniciarPartida}
           >
             Reiniciar Partida
           </button>
+
           <button
             className="btn"
             style={{ background: "#d93025", color: "#fff" }}
-            onClick={() => canEnd && salvarVinculado(true)}
-            disabled={!canEnd}
+            onClick={() => isAvulso ? encerrarPartidaImediata() : (canEnd && salvarVinculado(true))}
+            disabled={!isAvulso && !canEnd}  // <- no avulso NUNCA desabilita
           >
             Encerrar Partida
           </button>
+
           <button className="btn btn--muted" onClick={() => navigate(-1)}>Voltar</button>
         </div>
       </div>
@@ -987,8 +1292,18 @@ export default function Placar() {
 function renderTeamIcon(team) {
   const shadow = getContrastShadow(team.cor_detalhe);
   const sigla = (team.abrev || "").toUpperCase();
+
   return team?.escudo_url ? (
-    <img src={team.escudo_url} alt={team.nome} width={ICON_SIZE} height={ICON_SIZE} style={{ objectFit: "contain" }} />
+    // Envolva a imagem em um container "relative" com zIndex alto
+    <div style={{ position: "relative", width: ICON_SIZE, height: ICON_SIZE, zIndex: 3 }}>
+      <img
+        src={team.escudo_url}
+        alt={team.nome}
+        width={ICON_SIZE}
+        height={ICON_SIZE}
+        style={{ objectFit: "contain", display: "block" }}
+      />
+    </div>
   ) : (
     <div style={{ position: "relative", width: ICON_SIZE, height: ICON_SIZE }}>
       <TeamIcon team={{ cor1: team.cor1, cor2: team.cor2, cor_detalhe: team.cor_detalhe }} size={ICON_SIZE} title={team.nome} />
@@ -1183,6 +1498,7 @@ const ui = {
     alignItems: "flex-end",
     justifyContent: "center",
     marginBottom: -12, // sobreposição no teamNameBar
+    zIndex: 2,               // <-- garante sobreposição
   },
 
   // nome e thinbar SEMPRE com 100% da coluna e com padding “dentro”

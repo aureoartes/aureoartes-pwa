@@ -333,7 +333,7 @@ export default function Campeonatos() {
                       actions={[
                         { label: "Editar", onClick: () => abrirEditar(c) },
                         { label: "Excluir", variant: "red", onClick: () => excluir(c) },
-                        { label: "Equipes", variant: "orange", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
+                        { label: "Equipes", variant: "muted", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
                         showTabela ? { label: "Tabela", variant: "muted", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/classificacao`) } : null,
                         showPartidas ? { label: "Partidas", variant: "muted", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/partidas`) } : null,
                       ].filter(Boolean)}
