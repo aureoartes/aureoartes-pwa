@@ -1,5 +1,5 @@
-// src/pages/Placar.jsx (V12)
-//Ajuste nome truncado
+// src/pages/Placar.jsx (V13)
+//Ajuste no salvamento dos penaltis
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
@@ -341,9 +341,9 @@ export default function Placar() {
     setRodando(false);
   }
 
-  async function salvarVinculado(encerrar = false) {
+  async function salvarVinculado(encerrar = false, overrides = {}) {
     if (isAvulso || !partidaId) return;
-    const payload = {
+    const payloadBase = {
       gols_time_a: golsA,
       gols_time_b: golsB,
       penaltis_time_a: fase === "PEN" ? penA : null,
@@ -354,6 +354,10 @@ export default function Placar() {
       data_hora: dataHora ? toLocalISOString(dataHora) : null,
       encerrada: !!encerrar,
     };
+
+    // aplica os valores “snapshot” (se vierem)
+    const payload = { ...payloadBase, ...overrides };
+
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
     if (error) { showToast("❌ Erro ao salvar partida"); return; }
     if (encerrar) {
@@ -487,11 +491,12 @@ export default function Placar() {
     }
   }
 
-  function finalizarPartidaPenaltis() {
+  function finalizarPartidaPenaltis(snapshot) {
     if (DEBUG) console.log('[pen] finalizarPartidaPenaltis');
     setPenFinished(true);
     setEncerrada(true);
-    salvarVinculado(true);
+    // se vier snapshot, salva com ele; senão usa estado atual
+    salvarVinculado(true, snapshot || {});
   }
 
   function registrarPenalti(team, convertido) {
@@ -518,13 +523,23 @@ export default function Placar() {
       const remB = Math.max(0, qtdPen - bTot);
       if ((aConv - bConv) > remB || (bConv - aConv) > remA) {
         setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
-        finalizarPartidaPenaltis();
+        finalizarPartidaPenaltis({
+          penaltis_time_a: aConv,
+          penaltis_time_b: bConv,
+          penmiss_time_a: aMiss,
+          penmiss_time_b: bMiss,
+        });
         return;
       }
       if (aTot >= qtdPen && bTot >= qtdPen) {
         setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
         if (aConv !== bConv) {
-          finalizarPartidaPenaltis();
+          finalizarPartidaPenaltis({
+            penaltis_time_a: aConv,
+            penaltis_time_b: bConv,
+            penmiss_time_a: aMiss,
+            penmiss_time_b: bMiss,
+          });
         } else {
           setPenAlt(true);
           setPenTurn("A");
@@ -539,7 +554,12 @@ export default function Placar() {
     setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
     if (team === "B") {
       if (aConv !== bConv) {
-        finalizarPartidaPenaltis();
+        finalizarPartidaPenaltis({
+          penaltis_time_a: aConv,
+          penaltis_time_b: bConv,
+          penmiss_time_a: aMiss,
+          penmiss_time_b: bMiss,
+        });
       } else {
         setPenTurn("A");
       }
@@ -715,17 +735,24 @@ export default function Placar() {
 
         {/* Placar */}
         <div style={ui.scoreCell}>
-          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} />
+          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait}/>
         </div>
         <div style={ui.scoreCell}>
-          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} />
+          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait}/>
         </div>
       </div>
 
       {/* Faixa e cronômetro */}
       {/* Logo acima da faixa do cronometro */}
       <div style={{ marginTop: -60}}>
-        <img src={logo} alt="AureoArtes" style={ui.logoBelowImg} />
+        <img
+          src={logo}
+          alt="AureoArtes"
+          style={{
+            ...ui.logoBelowImg,
+            ...(isMobilePortrait ? { height: 46 } : null)
+          }}
+        />
       </div>
       <div style={ui.orangeLineWide} />
       <div style={ui.timerTrapWide}><div style={ui.timerText}>{fmt(segRestantes)}</div></div>
@@ -786,19 +813,37 @@ export default function Placar() {
           </div>
           <div className="row" style={{ justifyContent: "space-around", marginTop: 12 }}>
             <div>
-              <div>{timeA.nome}</div>
-              <div>✅ {penA} &nbsp;&nbsp; ❌ {penAMiss}</div>
+              <div
+                style={{
+                  background: corA1,
+                  color: corADetalhe,
+                  textShadow: getContrastShadow(corADetalhe),
+                  border: "2px solid",
+                  borderColor: corA2,
+                  padding: "8px 12px",
+                  borderRadius: 12,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 160,
+                  textAlign: "center",
+                  fontWeight: 800,
+                }}
+              >
+                {timeA.nome}
+                <div>⚽ {penA} &nbsp;&nbsp; ❌ {penAMiss}</div>
+              </div>
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
                 <button
                   className="btn btn--primary"
-                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
+                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 100 }}
                   onClick={() => registrarPenalti("A", true)} 
                   disabled={encerrada || penFinished || penTurn !== "A"}
-                >✅ Marcou
+                >⚽ Marcou
                 </button>
                 <button
                   className="btn btn--primary"
-                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
+                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 100 }}
                   onClick={() => registrarPenalti("A", false)} 
                   disabled={encerrada || penFinished || penTurn !== "A"}
                 >❌ Perdeu
@@ -806,19 +851,37 @@ export default function Placar() {
               </div>
             </div>
             <div>
-              <div>{timeB.nome}</div>
-              <div>✅ {penB} &nbsp;&nbsp; ❌ {penBMiss}</div>
+              <div
+                style={{
+                  background: corB1,
+                  color: corBDetalhe,
+                  textShadow: getContrastShadow(corBDetalhe),
+                  border: "2px solid",
+                  borderColor: corB2,
+                  padding: "8px 12px",
+                  borderRadius: 12,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 160,
+                  textAlign: "center",
+                  fontWeight: 800,
+                }}
+              >
+                {timeB.nome}
+                <div>⚽ {penB} &nbsp;&nbsp; ❌ {penBMiss}</div>
+              </div>
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
                 <button
                   className="btn btn--primary"
-                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
+                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 100 }}
                   onClick={() => registrarPenalti("B", true)} 
                   disabled={encerrada || penFinished || penTurn !== "B"}
-                >✅ Marcou
+                >⚽ Marcou
                 </button>
                 <button
                   className="btn btn--primary"
-                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 160 }}
+                  style={{ padding: "10px 14px", fontSize: 16, minWidth: 100 }}
                   onClick={() => registrarPenalti("B", false)} 
                   disabled={encerrada || penFinished || penTurn !== "B"}
                  >❌ Perdeu
@@ -955,7 +1018,7 @@ function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = 
 
   return (
     <div style={ui.scoreShell}>
-      <div style={{ ...ui.scoreBox, ...(compact ? { minHeight: 190, padding: "12px 12px" } : null), background: bg, clipPath: clip }}>
+      <div style={{ ...ui.scoreBox, ...(compact ? { minHeight: 170, padding: "12px 12px" } : null), background: bg, clipPath: clip }}>
         <div style={{ ...ui.scoreValue, color: textColor, textShadow }}>{value}</div>
         {showControls && (
           <div style={ui.scoreBtnsWrap}>
@@ -1011,11 +1074,20 @@ const COL_W   = "clamp(140px, 42vw, 360px)"; // largura de cada coluna
 const GAP     = 16;                           // espaçamento horizontal entre colunas (px)
 const TIMER_W = 260;                          // largura fixa do cronômetro (px)
 const ICON_SIZE = 140;
-const ICON_WRAP_H = ICON_SIZE + 10; // altura fixa do “slot” do escudo
+const ICON_WRAP_H = ICON_SIZE
 
 const ui = {
   headerWrap: { margin: "8px 0 0" },
-  headerBar: {
+  headerBar: (isMobilePortrait) ? {
+    background: "#ff7a00",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 10,
+    padding: "6px 10px", // menor
+    boxShadow: "0 4px 10px rgba(255,122,0,.25), inset 0 1px 0 rgba(255,255,255,.15)",
+  } : {
     background: "#ff7a00",
     color: "#fff",
     display: "flex",
@@ -1095,7 +1167,23 @@ const ui = {
   },
 
   // PLACAR com largura fixa da célula, independentemente do conteúdo
-  scoreBox: {
+  scoreBox: (isMobilePortrait) ? {
+    width: "100%",
+    minWidth: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    color: "#fff",
+    borderRadius: "0 0 14px 14px",
+    padding: "12px 12px",
+    minHeight: 170, // reduzido
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 8px 18px rgba(0,0,0,.18)",
+    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.1))",
+    border: "1px solid rgba(255,255,255,.06)",
+  } : {
+    // versão normal
     width: "100%",
     minWidth: "100%",
     maxWidth: "100%",

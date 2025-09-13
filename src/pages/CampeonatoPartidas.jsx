@@ -1,5 +1,5 @@
-// src/pages/CampeonatoPartidas.jsx (V3.2)
-// - Sem agregados e penalties, pronto para próximo ajuste
+// src/pages/CampeonatoPartidas.jsx (V3.5)
+// - Ordenação das rodadas
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
@@ -159,19 +159,99 @@ export default function CampeonatoPartidas() {
     for (const p of partidasFiltradas) {
       const isMM = !!p.is_mata_mata;
       const key = isMM
-        ? `FASE:${p.etapa || "Fase"}${p.perna ? ` · Jogo ${p.perna}` : ""}`
+        ? `FASE:${(p.etapa || "Fase").trim()}${p.perna ? ` · Jogo ${p.perna}` : ""}`
         : `RODADA:${p.rodada != null ? p.rodada : "-"}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(p);
     }
-    const entries = Array.from(map.entries()).sort((a, b) => {
-      if (a[0].startsWith("RODADA:") && b[0].startsWith("RODADA:")) {
-        return Number(a[0].split(":")[1]) - Number(b[0].split(":")[1]);
+
+    const fasePeso = (etapaRaw) => {
+      if (!etapaRaw) return 99;
+
+      // normaliza: minúsculas, sem acento, "_" -> " ", compacta espaços
+      let e = String(etapaRaw)
+        .toLowerCase()
+        .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      // converte variações de "3º lugar" para a forma canônica do banco
+      if (/\b(3o|3°|3º)\s+lugar\b/.test(e) || /\bterceiro\s+lugar\b/.test(e)) {
+        e = "terceiro_lugar";
       }
-      return a[0].localeCompare(b[0]);
+
+      // aliases → forma canônica (espelhando _etapa_rank)
+      const aliases = {
+        "preliminar": "preliminar",
+        "64-avos": "64-avos",
+        "64avos": "64-avos",
+        "32-avos": "32-avos",
+        "32avos": "32-avos",
+        "16-avos": "16-avos",
+        "16avos": "16-avos",
+        "oitavas": "oitavas",
+        "quartas": "quartas",
+        "semifinal": "semifinal",
+        "semi final": "semifinal",
+        "terceiro lugar": "terceiro_lugar", // <- canônico do banco
+        "final": "final",
+      };
+
+      const norm = aliases[e] || e;
+
+      const pesos = {
+        "preliminar": 1,
+        "64-avos": 2,
+        "32-avos": 3,
+        "16-avos": 4,
+        "oitavas": 5,
+        "quartas": 6,
+        "semifinal": 7,
+        "terceiro_lugar": 8,
+        "final": 9,
+      };
+
+      return pesos[norm] ?? 99;
+    };
+
+    const parseFaseKey = (key) => {
+      const rest = key.replace(/^FASE:/, "");
+      const [etapa, jogoStr] = rest.split(" · ").map((s) => s?.trim());
+      const jogoN = (jogoStr && jogoStr.startsWith("Jogo"))
+        ? Number(jogoStr.replace(/[^\d]/g, "")) || 0
+        : 0;
+      return { etapa, jogoN };
+    };
+
+    const entries = Array.from(map.entries()).sort((a, b) => {
+      const [ka] = a;
+      const [kb] = b;
+      const aRod = ka.startsWith("RODADA:");
+      const bRod = kb.startsWith("RODADA:");
+
+      if (aRod && bRod) {
+        return Number(ka.split(":")[1]) - Number(kb.split(":")[1]);
+      }
+      if (aRod) return -1;
+      if (bRod) return 1;
+
+      const { etapa: ea, jogoN: ja } = parseFaseKey(ka);
+      const { etapa: eb, jogoN: jb } = parseFaseKey(kb);
+
+      const pa = fasePeso(ea);
+      const pb = fasePeso(eb);
+      if (pa !== pb) return pa - pb;
+
+      if (ja !== jb) return ja - jb;
+
+      return ka.localeCompare(kb);
     });
+
     return entries.map(([k, items]) => ({
-      header: k.startsWith("RODADA:") ? `Rodada ${k.split(":")[1]}` : k.replace("FASE:", "Fase "),
+      header: k.startsWith("RODADA:")
+        ? `Rodada ${k.split(":")[1]}`
+        : k.replace("FASE:", "Fase "),
       items,
     }));
   }, [partidasFiltradas]);
@@ -445,6 +525,10 @@ export default function CampeonatoPartidas() {
               <ul className="list">
                 {grupo.items.map((p) => {
                   const canOpenPlacar = !!p.time_a_id && !!p.time_b_id;
+                  const idaPendente = p.is_mata_mata && camp?.ida_volta === true && p.perna === 2 && (() => {
+                    const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
+                    return ida && !ida.encerrada;
+                  })();
                   return (
                     <li key={p.id} className="list__item">
                       {/* Esquerda: times/placar e sub-infos */}
@@ -460,36 +544,31 @@ export default function CampeonatoPartidas() {
                         </div>
 
                         <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
-                          <div className="list__subtitle">
-                            {!p.is_mata_mata ? `Rodada ${p.rodada ?? "-"}` : p.etapa || ""}
-                            {p.grupo ? ` · Grupo ${p.grupo}` : ""}
-                            {!isNarrow && (
-                              <>
-                                {" · "}
-                                {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
-                                {p.local ? ` · ${p.local}` : ""}
-                              </>
-                            )}
-                          </div>
+                          <div className="list__subtitle" style={{ marginTop: 4 }}>
+                          {!isNarrow && (
+                            <>
+                              {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
+                              {p.local ? ` · ${p.local}` : ""}
+                            </>
+                          )}
+                        </div>
+                          {p.is_mata_mata && (
                           <div className="text-muted" style={{ fontSize: 12 }}>
                             {camp?.ida_volta === true && p.perna === 2 && (() => {
                               const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
                               if (!ida) return null;
-                              const idaAId = ida.time_a_id;
-                              const idaBId = ida.time_b_id;
-                              const voltaAId = p.time_a_id;
-                              const voltaBId = p.time_b_id;
-                              const voltaGolsParaIdaA = voltaAId === idaAId ? (p.gols_time_a || 0) : (voltaBId === idaAId ? (p.gols_time_b || 0) : 0);
-                              const voltaGolsParaIdaB = voltaAId === idaBId ? (p.gols_time_a || 0) : (voltaBId === idaBId ? (p.gols_time_b || 0) : 0);
-                              const somaA = (ida.gols_time_a || 0) + voltaGolsParaIdaA;
-                              const somaB = (ida.gols_time_b || 0) + voltaGolsParaIdaB;
-                              return <>Agregado: {somaA}-{somaB}</>;
+                              // calcular agregado no ORDEM DA TELA (time A à esquerda, time B à direita)
+                              const idaLeft = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
+                              const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
+                              const somaLeft = idaLeft + (p.gols_time_a || 0);
+                              const somaRight = idaRight + (p.gols_time_b || 0);
+                              return <>Agregado: {somaLeft}-{somaRight}</>;
                             })()}
-                            {((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
-                              (p.penaltis_time_a != null && p.penaltis_time_b != null) && (
-                                <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
-                              )}
+                            {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) && (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
+                              <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                            )}
                           </div>
+                        )}
                         </div>
 
                         {/* Seção Editar Partida */}
@@ -616,12 +695,12 @@ export default function CampeonatoPartidas() {
                       <div className="row hide-sm" style={{ gap: 8, display: editandoId === p.id ? "none" : undefined }}>
                         <button
                           className="btn btn--sm btn--orange"
-                          disabled={!canOpenPlacar}
+                          disabled={!canOpenPlacar || idaPendente}
                           onClick={() => navigate(`/partidas/${p.id}/placar`)}
                         >
                           Abrir placar
                         </button>
-                        <button className="btn btn--sm btn--muted" onClick={() => abrirEdicao(p)}>
+                        <button className="btn btn--sm btn--muted" disabled={idaPendente} onClick={() => abrirEdicao(p)}>
                           Editar
                         </button>
                       </div>
@@ -634,11 +713,11 @@ export default function CampeonatoPartidas() {
                           actions={[
                             {
                               label: "Abrir placar",
-                              variant: "muted",
-                              disabled: !canOpenPlacar,
+                              variant: "orange",
+                              disabled: !canOpenPlacar || idaPendente,
                               onClick: () => navigate(`/partidas/${p.id}/placar`),
                             },
-                            { label: "Editar", onClick: () => abrirEdicao(p) },
+                            { label: "Editar", variant: "muted", disabled: idaPendente, onClick: () => abrirEdicao(p) },
                           ]}
                         />
                       </div>

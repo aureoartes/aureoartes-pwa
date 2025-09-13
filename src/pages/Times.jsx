@@ -211,7 +211,7 @@ export default function Times() {
       {/* Cadastro/edição (oculto por padrão) */}
       {abrirCadastro && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12}}>
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
           </div>
 
@@ -220,12 +220,12 @@ export default function Times() {
               <div className="grid grid-2">
                 <div className="field">
                   <label className="label">Nome</label>
-                  <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} required />
+                  <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} maxLength={30} required />
                 </div>
 
                 <div className="field">
                   <label className="label">Abreviação (sigla)</label>
-                  <input className="input" value={abreviacao} onChange={(e) => setAbreviacao(e.target.value)} placeholder="Ex.: ABC" />
+                  <input className="input" value={abreviacao} onChange={(e) => setAbreviacao(e.target.value)} maxLength={5} required placeholder="Ex.: BRA" />
                 </div>
 
                 <div className="field">

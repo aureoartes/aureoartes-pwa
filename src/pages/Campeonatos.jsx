@@ -197,7 +197,7 @@ export default function Campeonatos() {
 
       {abrirCadastro && (
         <div ref={formRef} className="card" style={{ marginBottom: 12, padding: 16 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center",marginBottom: 12 }}>
             <div className="collapsible__title">{editando ? "Editar Campeonato" : "Cadastrar Campeonato"}</div>
           </div>
           <div className="grid grid-2">
@@ -331,11 +331,11 @@ export default function Campeonatos() {
                       openMenuId={openMenuId}
                       setOpenMenuId={setOpenMenuId}
                       actions={[
-                        { label: "Equipes", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
-                        showTabela ? { label: "Tabela", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/classificacao`) } : null,
-                        showPartidas ? { label: "Partidas", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/partidas`) } : null,
                         { label: "Editar", onClick: () => abrirEditar(c) },
                         { label: "Excluir", variant: "red", onClick: () => excluir(c) },
+                        { label: "Equipes", variant: "orange", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
+                        showTabela ? { label: "Tabela", variant: "muted", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/classificacao`) } : null,
+                        showPartidas ? { label: "Partidas", variant: "muted", disabled: !tem, onClick: () => tem && navigate(`/campeonatos/${c.id}/partidas`) } : null,
                       ].filter(Boolean)}
                     />
                   </div>

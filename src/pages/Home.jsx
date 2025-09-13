@@ -44,7 +44,7 @@ export default function Home() {
                   <span style={{ fontWeight: 700 }}>Argentina</span>
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: "#7a5643", marginTop: 8 }}>2º tempo • 18:34 • Amistoso</div>
+              <div style={{ fontSize: 12, color: "#7a5643", marginTop: 8 }}>12/09/2025 • 18:00 • Estádio da Amizade</div>
             </div>
           </div>
         </div>

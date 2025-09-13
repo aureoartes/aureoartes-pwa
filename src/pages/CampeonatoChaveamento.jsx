@@ -1,4 +1,4 @@
-// src/pages/CampeonatoChaveamento.jsx
+// src/pages/CampeonatoChaveamento.jsx (V6)
 // Visão de mata‑mata (bracket) — layout horizontal com conectores entre colunas
 // Foco visual: nomes completos, hover, conectores SVG; agregado com inversão de mando; "-" para jogos não encerrados
 
@@ -48,33 +48,35 @@ function etapaTitulo(etapa) {
 }
 
 // --- Bracket grid helpers (alinhamento vertical tipo chaveamento)
-const ROW_H = 72; // altura de cada "slot" vertical
+const ROW_H = 56;
 function rowStartFor(colIndexRel, idxInCol) {
-  // Fórmula: start = 1 + 2^c + idx * 2^(c+1)
-  const c = Math.max(0, colIndexRel|0);
-  const start = 1 + (1 << c) + idxInCol * (1 << (c + 1));
-  return start;
+  // Coluna 0 encostada no topo (1,3,5,7...), fases seguintes centralizadas (2,6... / 4 ...)
+  const c = Math.max(0, colIndexRel | 0);
+  if (c === 0) {
+    return 1 + idxInCol * 2;
+  }
+  const base = 1 << c; // 2^c
+  return base + idxInCol * (1 << (c + 1));
 }
+
 function gridStyleForColumn(baseMatchesCount) {
-  const n0 = Math.max(1, baseMatchesCount|0);
-  const totalRows = 2 * n0; // garante espaço para todas as fases
-  return { display: 'grid', gridTemplateRows: `repeat(${totalRows}, ${ROW_H}px)` };
+  const totalRows = 1 << Math.ceil(Math.log2(Math.max(1, baseMatchesCount)) + 1);
+  return { display: 'grid', gridTemplateRows: `repeat(${totalRows}, ${ROW_H}px)`, alignItems: 'start' };
 }
 
 // Conectores em SVG entre colunas adjacentes (horizontal)
 function ConnectorLayer({ containerRef }) {
   const svgRef = useRef(null);
-
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
     const draw = () => {
       const svg = svgRef.current;
       if (!svg) return;
-
+      // Usa o scroller real (a .card com overflow) para corrigir offsets
+      const scroller = el.parentElement?.closest('.card') || el;
       const rect = el.getBoundingClientRect();
-      const cards = Array.from(el.querySelectorAll('[data-col][data-idx]'));
+      const cards = Array.from(el.querySelectorAll('.match-card'));
       const byCol = new Map();
       for (const c of cards) {
         const col = Number(c.getAttribute('data-col'));
@@ -82,70 +84,54 @@ function ConnectorLayer({ containerRef }) {
         if (!byCol.has(col)) byCol.set(col, []);
         byCol.get(col)[idx] = c;
       }
-
-      const width = el.scrollWidth;
-      const height = el.scrollHeight;
+      const width = (scroller?.scrollWidth || el.scrollWidth);
+      const height = (scroller?.scrollHeight || el.scrollHeight);
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.setAttribute('width', String(width));
-      svg.setAttribute('height', String(height));
-      // também define tamanhos via estilo para garantir expansão
       svg.style.width = width + 'px';
       svg.style.height = height + 'px';
-
-      // limpa
       while (svg.firstChild) svg.removeChild(svg.firstChild);
-        if (!width || !height) return;
-
-      // desenha ligações col -> col+1
+      if (!width || !height) return;
       for (const [col, arr] of byCol) {
         const next = byCol.get(col + 1);
         if (!next) continue;
         arr.forEach((fromCard, i) => {
-          const toIdx = Math.floor(i / 2); // 2 → 1
+          const toIdx = Math.floor(i / 2);
           const toCard = next[toIdx];
           if (!fromCard || !toCard) return;
           const a = fromCard.getBoundingClientRect();
           const b = toCard.getBoundingClientRect();
-          // Coordenadas relativas ao SVG (considera scroll)
-          const startX = (a.right - rect.left) + el.scrollLeft;
-          const startY = (a.top - rect.top) + a.height / 2 + el.scrollTop;
-          const endX   = (b.left - rect.left) + el.scrollLeft;
-          const endY   = (b.top - rect.top) + b.height / 2 + el.scrollTop;
-          const dx = Math.max(36, (endX - startX) / 2);
-
+          const startX = (a.right - rect.left) + (scroller?.scrollLeft || 0);
+          const startY = (a.top - rect.top) + a.height / 2 + (scroller?.scrollTop || 0);
+          const endX   = (b.left - rect.left) + (scroller?.scrollLeft || 0);
+          const endY   = (b.top - rect.top) + b.height / 2 + (scroller?.scrollTop || 0);
+          const midX = (startX + endX) / 2;
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`);
+          path.setAttribute('d', `M ${startX} ${startY} H ${midX} V ${endY} H ${endX}`);
           path.setAttribute('fill', 'none');
-          path.setAttribute('stroke', '#FFB36A');
-          path.setAttribute('stroke-width', '2.5');
-          path.setAttribute('opacity', '0.95');
+          path.setAttribute('stroke', '#FF7A00');
+          path.setAttribute('stroke-width', '3');
+          path.setAttribute('opacity', '1');
           svg.appendChild(path);
         });
       }
     };
-
     const ro = new ResizeObserver(draw);
     ro.observe(el);
-    const mo = new MutationObserver(draw);
-    mo.observe(el, { childList: true, subtree: true, attributes: true });
-    el.addEventListener('scroll', draw, { passive: true });
+    // Observa a rolagem do pai scrollável (ui.board)
+    const scrollParent = el.parentElement?.closest('.card') || el.parentElement;
     window.addEventListener('resize', draw);
+    scrollParent?.addEventListener('scroll', draw);
+    el.addEventListener('scroll', draw);
     draw();
-
     return () => {
       ro.disconnect();
-      mo.disconnect();
-      el.removeEventListener('scroll', draw);
       window.removeEventListener('resize', draw);
+      el.removeEventListener('scroll', draw);
+      const scrollParent = el.parentElement?.closest('.card') || el.parentElement;
+      scrollParent?.removeEventListener('scroll', draw);
     };
   }, [containerRef]);
-
-  return (
-    <svg
-      ref={svgRef}
-      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}
-    />
-  );
+  return <svg ref={svgRef} style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}} />;
 }
 
 // Decide vencedor (agregado + pênaltis) mapeando por ID do time
@@ -186,15 +172,26 @@ function decidirVencedor(par) {
   return { vencedor: null, agregado: `${g1}-${g2}` };
 }
 
-function NomeTime({ team, title }) {
-  const nome = team?.nome || team?.abreviacao || title || 'Time';
+function NomeTime({ team, title, maxWidth = 160 }) {
+  const full = team?.nome || team?.abreviacao || title || 'Time';
+  // Truncamento seguro via CSS (ellipsis) com largura fixa visual
   return (
-    <span title={team?.nome || nome} style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-      {nome}
+    <span
+      title={full}
+      style={{
+        display: 'inline-block',
+        maxWidth: typeof maxWidth === 'number' ? `${maxWidth}px` : String(maxWidth),
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        verticalAlign: 'middle'
+      }}
+    >
+      {full}
     </span>
   );
 }
-
+  
 export default function CampeonatoChaveamento() {
   const { id: campeonatoId } = useParams();
 
@@ -247,7 +244,7 @@ export default function CampeonatoChaveamento() {
         const etapaKeyRaw = j?.etapa || '';
         const etapaKey = normalizeEtapa(etapaKeyRaw);
         if (!etapaKey) continue;
-        if (/terce/.test(etapaKey) || /^3/.test(etapaKey)) continue; // ignora terceiro lugar
+        if (/terce/.test(etapaKey) || /^3/.test(etapaKey)) continue;
         if (!porEtapa.has(etapaKey)) porEtapa.set(etapaKey, new Map());
         const porChave = porEtapa.get(etapaKey);
         const k = j.chave_id || j.id;
@@ -256,74 +253,114 @@ export default function CampeonatoChaveamento() {
       }
     }
 
-    // 2) Determina de onde começar a mostrar (NÃO projetar fases anteriores ao início real)
-    //    - Se houver qualquer etapa diferente de preliminar, começamos da mais cedo entre elas
-    //    - 'preliminar' só aparece se tiver jogos; não projetamos placeholders para ela
     const stagesPresent = Array.from(porEtapa.keys());
     if (stagesPresent.length === 0) return [];
 
     const orderIndex = (k) => ETAPAS_ORDEM.indexOf(k);
     const nonPrelim = stagesPresent.filter(k => k !== 'preliminar');
-    const startStage = nonPrelim.length > 0
-      ? nonPrelim.sort((a,b) => orderIndex(a) - orderIndex(b))[0]
-      : 'preliminar';
+    const startStage = nonPrelim.length > 0 ? nonPrelim.sort((a,b) => orderIndex(a)-orderIndex(b))[0] : 'preliminar';
     const startIdx = Math.max(0, orderIndex(startStage));
-
-    // 3) Monta lista de etapas a exibir: somente do startIdx para frente
     const etapas = ETAPAS_ORDEM.slice(startIdx);
 
-    // 4) Calcula tamanhos desejados APENAS para fases posteriores (projeção para frente)
     const sizeReal = new Map();
-    for (const k of etapas) {
-      const realSize = porEtapa.get(k)?.size || 0;
-      sizeReal.set(k, realSize);
-    }
+    for (const k of etapas) sizeReal.set(k, porEtapa.get(k)?.size || 0);
 
     const sizeWanted = new Map();
-    for (let i = 0; i < etapas.length; i++) {
+    for (let i=0;i<etapas.length;i++){
       const k = etapas[i];
       const real = sizeReal.get(k) || 0;
-      if (real > 0) {
-        sizeWanted.set(k, real);
-      } else {
-        // não projetar placeholders para preliminar
-        if (k === 'preliminar') {
-          sizeWanted.set(k, 0);
-          continue;
-        }
-        // usa metade arredondada para cima da fase anterior exibida
-        const prev = i > 0 ? (sizeWanted.get(etapas[i - 1]) || 0) : 0;
-        sizeWanted.set(k, prev > 0 ? Math.max(1, Math.ceil(prev / 2)) : 0);
+      if (real>0) sizeWanted.set(k, real);
+      else {
+        if (k==='preliminar'){ sizeWanted.set(k,0); continue; }
+        const prev = i>0 ? (sizeWanted.get(etapas[i-1])||0):0;
+        sizeWanted.set(k, prev>0 ? Math.max(1, Math.ceil(prev/2)) : 0);
       }
     }
 
-    // 5) Monta colunas com placeholders apenas do startIdx em diante; sem placeholders na preliminar
-    const out = [];
-    let colIndex = 0;
-    for (const etapaKey of etapas) {
+    const out=[]; let colIndex=0;
+    for(const etapaKey of etapas){
       const titulo = etapaTitulo(etapaKey);
       const reaisMap = porEtapa.get(etapaKey);
-      const reais = reaisMap ? Array.from(reaisMap.values()) : [];
+      let reais = reaisMap ? Array.from(reaisMap.values()) : [];
       let wanted = sizeWanted.get(etapaKey) || 0;
+      if (etapaKey==='preliminar') wanted=reais.length;
+      const hasAnyRight = ETAPAS_ORDEM.slice(ETAPAS_ORDEM.indexOf(etapaKey)).some(k=>(sizeWanted.get(k)||0)>0||(porEtapa.get(k)?.size||0)>0);
+      if (wanted===0 && reais.length===0 && !hasAnyRight) continue;
 
-      // preliminar: só exibe o que existe, sem projeção
-      if (etapaKey === 'preliminar') wanted = reais.length;
+      // Ordena jogos por chave_id numérica quando possível
+      reais.sort((a,b)=>{
+        const ka=Number(a?.meta?.chave_id ?? a?.ida?.chave_id ?? a?.volta?.chave_id ?? Infinity);
+        const kb=Number(b?.meta?.chave_id ?? b?.ida?.chave_id ?? b?.volta?.chave_id ?? Infinity);
+        if(!Number.isNaN(ka)&&!Number.isNaN(kb)) return ka-kb;
+        return String(a?.meta?.chave_id ?? a?.ida?.chave_id ?? a?.volta?.chave_id ?? '').localeCompare(String(b?.meta?.chave_id ?? b?.ida?.chave_id ?? b?.volta?.chave_id ?? ''));
+      });
 
-      // se não há nada a exibir nesta e nas próximas, para aqui
-      const hasAnyRight = ETAPAS_ORDEM.slice(ETAPAS_ORDEM.indexOf(etapaKey)).some(k => (sizeWanted.get(k) || 0) > 0 || (porEtapa.get(k)?.size || 0) > 0);
-      if (wanted === 0 && reais.length === 0 && !hasAnyRight) continue;
-
-      const pares = [...reais];
-      while (pares.length < wanted) {
-        pares.push({ ida: null, volta: null, meta: { placeholder: true } });
+      // Agrupa pares em blocos de acordo com a próxima fase (para alinhar "irmãos")
+      const nextEtapa = etapas[etapas.indexOf(etapaKey)+1];
+      if(nextEtapa && porEtapa.has(nextEtapa)){
+        const filhos = Array.from(porEtapa.get(nextEtapa).values());
+        const grupos = [];
+        filhos.forEach(f=>{
+          const ids=[f?.ida?.time_a?.id,f?.ida?.time_b?.id,f?.volta?.time_a?.id,f?.volta?.time_b?.id].filter(Boolean);
+          const pais = reais.filter(r=>{
+            const tids=[r?.ida?.time_a?.id,r?.ida?.time_b?.id,r?.volta?.time_a?.id,r?.volta?.time_b?.id].filter(Boolean);
+            return tids.some(id=>ids.includes(id));
+          });
+          if(pais.length>0) grupos.push(pais);
+        });
+        const flattened = [].concat(...grupos);
+        const resto = reais.filter(r=>!flattened.includes(r));
+        reais = [...flattened,...resto];
       }
 
-      const concluidos = reais.reduce((acc, par) => acc + (decidirVencedor(par).vencedor ? 1 : 0), 0);
-      out.push({ etapaKey, titulo, pares, concluidos, total: pares.length, colIndex: colIndex++ });
+      const pares=[...reais];
+      while(pares.length<wanted) pares.push({ida:null,volta:null,meta:{placeholder:true}});
+      const concluidos = reais.reduce((acc,par)=>acc+(decidirVencedor(par).vencedor?1:0),0);
+      out.push({ etapaKey,titulo,pares,concluidos,total:pares.length,colIndex:colIndex++ });
+    }
+    // Reordena visualmente cada fase para agrupar pais sob o mesmo filho da fase seguinte
+    for (let i = 0; i < out.length - 1; i++) {
+      const cur = out[i];
+      const nxt = out[i + 1];
+
+      const nextTeams = nxt.pares.map((p) => {
+        const ida = p.ida || null; const volta = p.volta || null;
+        const t1 = ida?.time_a || ida?.time_b || volta?.time_a || volta?.time_b;
+        const t2 = [ida?.time_a, ida?.time_b, volta?.time_a, volta?.time_b].find(t => t && t.id !== t1?.id) || null;
+        return new Set([t1?.id, t2?.id].filter(Boolean));
+      });
+
+      const teamsOf = (par) => {
+        const ida = par.ida || null; const volta = par.volta || null;
+        const t1 = ida?.time_a || ida?.time_b || volta?.time_a || volta?.time_b;
+        const t2 = [ida?.time_a, ida?.time_b, volta?.time_a, volta?.time_b].find(t => t && t.id !== t1?.id) || null;
+        return new Set([t1?.id, t2?.id].filter(Boolean));
+      };
+
+      const groupIndex = (par) => {
+        const ts = teamsOf(par);
+        for (let j = 0; j < nextTeams.length; j++) {
+          const tgt = nextTeams[j];
+          if (tgt.size === 0) continue;
+          for (const id of ts) if (tgt.has(id)) return j;
+        }
+        return Number.MAX_SAFE_INTEGER;
+      };
+
+      const chaveNum = (par) => {
+        const k = Number(par?.meta?.chave_id ?? par?.ida?.chave_id ?? par?.volta?.chave_id);
+        return Number.isNaN(k) ? Number.MAX_SAFE_INTEGER : k;
+      };
+
+      cur.pares = cur.pares.slice().sort((a, b) => {
+        const ga = groupIndex(a), gb = groupIndex(b);
+        if (ga !== gb) return ga - gb;
+        return chaveNum(a) - chaveNum(b);
+      });
     }
 
     return out;
-  }, [jogos]);
+  },[jogos]);
 
   if (loading) return (
     <div className="container"><div className="card">Carregando…</div></div>
@@ -343,10 +380,10 @@ export default function CampeonatoChaveamento() {
       minWidth: 320, scrollSnapAlign: 'start',
       background: i % 2 === 0 ? 'linear-gradient(180deg,#fafafa,#fff)' : 'linear-gradient(180deg,#fff,#fafafa)',
       border: '1px solid #eef2f7', borderRadius: 16, padding: 10,
-      boxShadow: '0 1px 0 rgba(0,0,0,.02) inset', position: 'relative', zIndex: 1
+      boxShadow: '0 1px 0 rgba(0,0,0,.02) inset', position: 'relative', zIndex: 0
     }),
     colHeader: { padding: '8px 10px', marginBottom: 8, borderBottom: '2px solid #FF6600', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 800, letterSpacing: .6, fontSize: 12 },
-    matches: (n0) => ({ ...gridStyleForColumn(n0), gap: 12 }),
+    matches: (n0) => ({ ...gridStyleForColumn(n0), gap: 8 }),
     card: (destaque) => ({
       borderRadius: 14, padding: 12,
       background: destaque ? '#FFF7ED' : '#fff',
@@ -358,7 +395,7 @@ export default function CampeonatoChaveamento() {
     row: { alignItems: 'center', gap: 10 },
     teamNameWrap: { flex: 1, minWidth: 0 },
     teamName: (isWinner) => ({ fontSize: 14, fontWeight: isWinner ? 800 : 600, color: isWinner ? '#b45309' : 'inherit' }),
-    pillBase: { padding: '2px 6px', borderRadius: 12, fontSize: 12, lineHeight: 1.2, marginLeft: 6, display: 'inline-block', fontVariantNumeric: 'tabular-nums' },
+    pillBase: { padding: '2px 6px', borderRadius: 12, fontSize: 12, lineHeight: 1.2, marginLeft: 6, display: 'inline-block', fontVariantNumeric: 'tabular-nums', minWidth: '1.6em', textAlign: 'center' },
     pillIda: (showVolta, encerrada) => ({ background: showVolta ? '#f3f4f6' : (encerrada ? '#fde68a' : '#f3f4f6'), fontWeight: showVolta ? 500 : 700 }),
     pillVolta: () => ({ background: '#f3f4f6' }),
     pillAgg: { background: '#e0f2fe', fontWeight: 700 },
@@ -441,6 +478,8 @@ export default function CampeonatoChaveamento() {
                       className="match-card"
                       data-col={col.colIndex}
                       data-idx={idx}
+                      data-chave={(par?.meta?.chave_id ?? par?.ida?.chave_id ?? par?.volta?.chave_id) ?? ''}
+                      data-teams={`${t1?.id || ''},${t2?.id || ''}`}
                       style={{ ...cardStyle, gridRow: `${rowStart} / span 1`, minHeight: ROW_H - 16 }}
                       onMouseEnter={(e) => !isPlaceholder && Object.assign(e.currentTarget.style, ui.cardHover)}
                       onMouseLeave={(e) => !isPlaceholder && Object.assign(e.currentTarget.style, ui.card(!!vencedor))}
@@ -496,7 +535,7 @@ export default function CampeonatoChaveamento() {
           ))}
 
           {/* Conectores por cima (z-index 2) */}
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}>
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 12 }}>
             <ConnectorLayer containerRef={bracketRef} />
           </div>
 
