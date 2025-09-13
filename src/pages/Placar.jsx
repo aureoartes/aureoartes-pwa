@@ -1,5 +1,6 @@
-// src/pages/Placar.jsx (V13)
+// src/pages/Placar.jsx (V14)
 //Ajuste no salvamento dos penaltis
+//resolvendo tela branca no mobile
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
@@ -735,10 +736,28 @@ export default function Placar() {
 
         {/* Placar */}
         <div style={ui.scoreCell}>
-          <ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait}/>
+          <ScoreCardA
+            value={golsA}
+            onDec={() => setGolsA(v => Math.max(0, v - 1))}
+            onInc={() => setGolsA(v => v + 1)}
+            bg={corA1}
+            textColor={corADetalhe}
+            textShadow={getContrastShadow(corADetalhe)}
+            showControls={!encerrada && fase !== 'PEN'}
+            compact={isMobilePortrait}   // <-- ADICIONE ISTO
+          />
         </div>
         <div style={ui.scoreCell}>
-          <ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait}/>
+          <ScoreCardB
+            value={golsB}
+            onDec={() => setGolsB(v => Math.max(0, v - 1))}
+            onInc={() => setGolsB(v => v + 1)}
+            bg={corB1}
+            textColor={corBDetalhe}
+            textShadow={getContrastShadow(corBDetalhe)}
+            showControls={!encerrada && fase !== 'PEN'}
+            compact={isMobilePortrait}   // <-- ADICIONE ISTO
+          />
         </div>
       </div>
 
@@ -1078,16 +1097,7 @@ const ICON_WRAP_H = ICON_SIZE
 
 const ui = {
   headerWrap: { margin: "8px 0 0" },
-  headerBar: (isMobilePortrait) ? {
-    background: "#ff7a00",
-    color: "#fff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderRadius: 10,
-    padding: "6px 10px", // menor
-    boxShadow: "0 4px 10px rgba(255,122,0,.25), inset 0 1px 0 rgba(255,255,255,.15)",
-  } : {
+  headerBar: {
     background: "#ff7a00",
     color: "#fff",
     display: "flex",
@@ -1167,23 +1177,7 @@ const ui = {
   },
 
   // PLACAR com largura fixa da célula, independentemente do conteúdo
-  scoreBox: (isMobilePortrait) ? {
-    width: "100%",
-    minWidth: "100%",
-    maxWidth: "100%",
-    boxSizing: "border-box",
-    color: "#fff",
-    borderRadius: "0 0 14px 14px",
-    padding: "12px 12px",
-    minHeight: 170, // reduzido
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 8px 18px rgba(0,0,0,.18)",
-    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.1))",
-    border: "1px solid rgba(255,255,255,.06)",
-  } : {
-    // versão normal
+  scoreBox: {
     width: "100%",
     minWidth: "100%",
     maxWidth: "100%",
