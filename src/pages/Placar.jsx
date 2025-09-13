@@ -763,13 +763,13 @@ export default function Placar() {
 
       {/* Faixa e cronômetro */}
       {/* Logo acima da faixa do cronometro */}
-      <div style={{ marginTop: -60}}>
+      <div style={{ marginTop: isMobilePortrait ? -40 : -60 }}>
         <img
           src={logo}
           alt="AureoArtes"
           style={{
             ...ui.logoBelowImg,
-            ...(isMobilePortrait ? { height: 46 } : null)
+            ...(isMobilePortrait ? { height: 40 } : null)
           }}
         />
       </div>
@@ -806,20 +806,55 @@ export default function Placar() {
 
       {!encerrada && fase !== "PEN" && (
         <div className="card" style={{ padding: 16, marginTop: 12, textAlign: "center" }}>
-          <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 22, color: "#ff7a00" }}>
+          <div
+            style={{
+              marginBottom: 8,
+              fontWeight: 700,
+              fontSize: isMobilePortrait ? 18 : 22, // menor no mobile
+              color: "#ff7a00"
+            }}
+          >
             {labelFaseAmigavel(fase)}
           </div>
+
           <div className="row" style={{ gap: 8, justifyContent: "center" }}>
             {!rodando ? (
-              <button className="btn btn--primary" onClick={() => setRodando(true)}>Iniciar</button>
+              <button
+                className="btn btn--primary"
+                onClick={() => setRodando(true)}
+                style={isMobilePortrait ? { padding: "8px 10px", fontSize: 14 } : undefined}
+              >
+                Iniciar
+              </button>
             ) : (
-              <button className="btn btn--primary" onClick={() => setRodando(false)}>Pausar</button>
+              <button
+                className="btn btn--primary"
+                onClick={() => setRodando(false)}
+                style={isMobilePortrait ? { padding: "8px 10px", fontSize: 14 } : undefined}
+              >
+                Pausar
+              </button>
             )}
-            <button className="btn btn--muted" onClick={resetPeriodo}>Reiniciar período</button>
-            <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)}>Encerrar período</button>
+
+            <button
+              className="btn btn--muted"
+              onClick={resetPeriodo}
+              style={isMobilePortrait ? { padding: "8px 10px", fontSize: 14 } : undefined}
+            >
+              {isMobilePortrait ? "Reiniciar" : "Reiniciar período"}
+            </button>
+
+            <button
+              className="btn btn--muted"
+              onClick={() => encerrarPeriodo(true)}
+              style={isMobilePortrait ? { padding: "8px 10px", fontSize: 14 } : undefined}
+            >
+              {isMobilePortrait ? "Encerrar" : "Encerrar período"}
+            </button>
           </div>
         </div>
       )}
+
 
       {/* Seção Pênaltis */}
       {(fase === "PEN" || (encerrada && tevePenaltis)) && (
@@ -1037,8 +1072,17 @@ function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = 
 
   return (
     <div style={ui.scoreShell}>
-      <div style={{ ...ui.scoreBox, ...(compact ? { minHeight: 170, padding: "12px 12px" } : null), background: bg, clipPath: clip }}>
-        <div style={{ ...ui.scoreValue, color: textColor, textShadow }}>{value}</div>
+      <div
+        style={{
+          ...ui.scoreBox,
+          ...(compact ? { minHeight: 150, padding: "10px 10px" } : null),
+          background: bg,
+          clipPath: clip
+        }}
+      >
+        <div style={{ ...ui.scoreValue, ...(compact ? ui.scoreValueCompact : null), color: textColor, textShadow }}>
+          {value}
+        </div>
         {showControls && (
           <div style={ui.scoreBtnsWrap}>
             <button className="btn btn--muted" onClick={onDec}>-1</button>
@@ -1204,9 +1248,13 @@ const ui = {
     fontFeatureSettings: '"tnum"',
   },
 
+  scoreValueCompact: {
+    fontSize: "clamp(64px, 8vw, 112px)"
+  },
+
   scoreBtnsWrap: { display: "flex", justifyContent: "center", gap: 8, marginTop: 8 },
 
-  logoBelowImg: { height: 58, display: "block", margin: "0 auto 0" }, // um pouco maior e centralizada
+  logoBelowImg: { height: 58, display: "block", margin: "0 auto 0"}, // um pouco maior e centralizada
 
   orangeLineWide: {
     height: 10,
