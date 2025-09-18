@@ -1,11 +1,17 @@
 import { Routes, Route } from "react-router-dom";
-import ProtectedRouteFront from "./routes/ProtectedRouteFront";
 
+// 🔐 Auth (novo)
+import { AuthProvider } from "./auth/AuthProvider";
+import { ProtectedRoute } from "./auth/ProtectedRoute";
+import { SupabaseSessionListener } from "./auth/SupabaseSessionListener";
+import SignIn from "./auth/SignIn";
+import Signup from "./pages/Signup";
+
+// UI
 import Navbar from "./components/Navbar";
 
-// Páginas (ajuste caminhos conforme seu projeto)
+// Páginas (mantidas)
 import Home from "./pages/Home";
-import Login from "./pages/Login";
 import Placar from "./pages/Placar";
 import Times from "./pages/Times";
 import TimeDetalhes from "./pages/TimeDetalhes";
@@ -16,92 +22,45 @@ import CampeonatoTabela from "./pages/CampeonatoTabela";
 import CampeonatoChaveamento from "./pages/CampeonatoChaveamento";
 import Perfil from "./pages/Perfil";
 import Campeonatos from "./pages/Campeonatos";
+import AtualizaUsuario from "./pages/AtualizaUsuario";
+
 export default function App() {
   return (
     <>
       <Navbar />
-      <Routes>
-        {/* Livre */}
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/placar" element={<Placar />} />
 
-        {/* Protegidas por USUARIO_ID */}
-        <Route
-          path="/times"
-          element={
-            <ProtectedRouteFront>
-              <Times />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/times/:id"
-          element={
-            <ProtectedRouteFront>
-              <TimeDetalhes />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/jogadores"
-          element={
-            <ProtectedRouteFront>
-              <Jogadores />
-            </ProtectedRouteFront>
-          }
-        />
-        
-        <Route
-          path="/campeonatos"
-          element={
-            <ProtectedRouteFront>
-              <Campeonatos />
-            </ProtectedRouteFront>
-          }
-        />
+      {/* Provider + Listener de sessão */}
+      <AuthProvider>
+        <SupabaseSessionListener />
 
-        <Route
-          path="/campeonato/equipes"
-          element={
-            <ProtectedRouteFront>
-              <CampeonatoEquipes />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/campeonato/partidas"
-          element={
-            <ProtectedRouteFront>
-              <CampeonatoPartidas />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/campeonato/tabela"
-          element={
-            <ProtectedRouteFront>
-              <CampeonatoTabela />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/campeonato/chaveamento"
-          element={
-            <ProtectedRouteFront>
-              <CampeonatoChaveamento />
-            </ProtectedRouteFront>
-          }
-        />
-        <Route
-          path="/perfil"
-          element={
-            <ProtectedRouteFront>
-              <Perfil />
-            </ProtectedRouteFront>
-          }
-        />
-      </Routes>
+        <Routes>
+          {/* Rotas livres */}
+          <Route path="/" element={<Home />} />
+          <Route path="placar" element={<Placar mode="avulso" />} />
+          {/* Login (mantive /login e adicionei /entrar para compatibilidade) */}
+          <Route path="/login" element={<SignIn />} />
+          <Route path="/entrar" element={<SignIn />} />
+          <Route path="/signup" element={<Signup />} /> 
+          <Route path="/atualiza-usuario" element={<AtualizaUsuario />} />
+
+          {/* Rotas protegidas (grupo) */}
+          <Route element={<ProtectedRoute />}>
+            {/* Alias padrão pós-login do SignIn */}
+            <Route path="/app" element={<Campeonatos />} />
+
+            <Route path="/times" element={<Times />} />
+            <Route path="/times/:id" element={<TimeDetalhes />} />
+            <Route path="/jogadores" element={<Jogadores />} />
+            <Route path="/campeonatos" element={<Campeonatos />} />
+            <Route path="/campeonatos/:id/equipes" element={<CampeonatoEquipes />} />
+            <Route path="/campeonatos/:id/partidas" element={<CampeonatoPartidas />} />
+            <Route path="/campeonatos/:id/classificacao" element={<CampeonatoTabela />} />
+            <Route path="/campeonatos/:id/chaveamento" element={<CampeonatoChaveamento />} />
+            <Route path="partidas/:partidaId/placar" element={<Placar />} />
+            <Route path="/perfil" element={<Perfil />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
     </>
   );
 }

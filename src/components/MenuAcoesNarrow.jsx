@@ -92,10 +92,14 @@ export default function MenuAcoesNarrow({
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             {actions.map((a, idx) => {
               const cls =
-                "btn btn--sm " +
-                (a.variant === "red" ? "btn--red"
-                  : a.variant === "muted" ? "btn--muted"
-                  : "btn--orange");
+                a.className
+                  ? `btn btn--sm ${a.className}`
+                  : "btn btn--sm " + (
+                      a.variant === "red" ? "btn--red" :
+                      a.variant === "muted" ? "btn--muted" :
+                      a.variant === "primary" ? "btn--primary" :
+                      "btn--orange" // fallback
+                    );
               const common = { role: "menuitem", "aria-disabled": a.disabled || undefined };
 
               if (a.to) {

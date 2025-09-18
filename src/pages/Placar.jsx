@@ -5,7 +5,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";         // <- named export
+import { useAuth } from "@/auth/AuthProvider"; // ajuste: auth
 import TeamIcon from "../components/TeamIcon";
 import { getContrastShadow } from "../utils/colors";
 import logo from "../assets/logo_aureoartes.png";
@@ -15,6 +16,7 @@ export default function Placar() {
   const { partidaId } = useParams();
   const navigate = useNavigate();
   const isAvulso = !partidaId;
+  const { ownerId, loading: authLoading } = useAuth();
   const [toastMsg, setToastMsg] = useState("");
   const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
@@ -75,7 +77,17 @@ export default function Placar() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // ===== Carregamento =====
+  
+  // Guarda de autenticação quando a partida é vinculada
+  if (!isAvulso && authLoading) {
+    return (
+      <div className="container">
+        <div className="card">Carregando autenticação…</div>
+      </div>
+    );
+  }
+
+// ===== Carregamento =====
   useEffect(() => {
     try { setCanEnd(canEncerrarPartida()); }
     catch { setCanEnd(true); }
@@ -125,8 +137,9 @@ export default function Placar() {
       if (!p) return;
       setPartida(p);
 
-      const { data: c } = await supabase.from("campeonatos").select("*").eq("id", p.campeonato_id).single();
-      setCamp(c || null);
+      const { data: c } = await supabase.from("campeonatos").select("*").eq("id", p.campeonato_id).eq("usuario_id", ownerId).single();
+      if (!c || c.usuario_id !== ownerId) { showToast("Campeonato não encontrado para este usuário."); navigate("/campeonatos"); return; }
+      setCamp(c);
 
       const tempoMin = c?.duracao_tempo ?? 10;
       const pr = !!c?.prorrogacao;
@@ -141,7 +154,8 @@ export default function Placar() {
         const { data: ts } = await supabase
           .from("times")
           .select("id, nome, abreviacao, cor1, cor2, cor_detalhe, escudo_url")
-          .in("id", ids);
+          .in("id", ids)
+          .eq("usuario_id", ownerId);
         const byId = new Map((ts || []).map((t) => [t.id, t]));
         const A = byId.get(p.time_a_id);
         const B = byId.get(p.time_b_id);

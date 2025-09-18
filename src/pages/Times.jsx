@@ -1,15 +1,20 @@
-// src/pages/Times.jsx
+// v1.1.0 — Autenticação Supabase + RLS (ownerId) — 2025-09-15
+// Ajustes principais:
+// - Usa useAuth() para obter { ownerId, loading } e condiciona os loads
+// - Substitui getUsuarioId() por ownerId em todas as queries
+// - Garante enabled apenas quando ownerId existir (evita “herdar” dados na troca de login)
+
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";            // ← novo (nomeado)
+import { useAuth } from "@/auth/AuthProvider";              // ← novo
 import { getContrastShadow } from "../utils/colors";
 import ColorSwatchSelect from "../components/ColorSwatchSelect";
 import QuickAddInline from "../components/QuickAddInline";
-import { getUsuarioId } from "../config/appUser";
-
-const USUARIO_ID = getUsuarioId();
 
 export default function Times() {
+  const { ownerId, loading: authLoading } = useAuth();
+
   // Listas
   const [times, setTimes] = useState([]);
   const [regioes, setRegioes] = useState([]);
@@ -19,7 +24,7 @@ export default function Times() {
   const [ordenacao, setOrdenacao] = useState("alfabetica");
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
 
-  // Cadastro/edição (oculto por padrão)
+  // Cadastro/edição
   const [abrirCadastro, setAbrirCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
@@ -31,43 +36,62 @@ export default function Times() {
   const [corDetalhe, setCorDetalhe] = useState("#000000");
   const [regiaoId, setRegiaoId] = useState("");
 
-  // QuickAddInline (popover) — SOMENTE no formulário
   const [quickAddOpen, setQuickAddOpen] = useState(false);
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!ownerId) {
+      setTimes([]); setRegioes([]);
+      setLoading(false);
+      return;
+    }
     (async () => {
       setLoading(true);
-      await Promise.all([fetchTimes(), fetchRegioes(), fetchCategorias()]);
+      await Promise.all([fetchTimes(ownerId), fetchRegioes(ownerId), fetchCategorias()]);
       setLoading(false);
     })();
-  }, []);
+  }, [ownerId, authLoading]);
 
-  async function fetchTimes() {
-    const { data } = await supabase
+  async function fetchTimes(owner) {
+    const { data, error } = await supabase
       .from("times")
       .select("*")
-      .eq("usuario_id", USUARIO_ID)
+      .eq("usuario_id", owner)
       .order("nome", { ascending: true });
+    if (error) {
+      console.error("fetchTimes", error);
+      setTimes([]);
+      return;
+    }
     setTimes(data || []);
   }
 
-  async function fetchRegioes() {
-    const { data } = await supabase
+  async function fetchRegioes(owner) {
+    const { data, error } = await supabase
       .from("regioes")
       .select("id, descricao")
-      .eq("usuario_id", USUARIO_ID)
+      .eq("usuario_id", owner)
       .order("descricao", { ascending: true });
+    if (error) {
+      console.error("fetchRegioes", error);
+      setRegioes([]);
+      return;
+    }
     setRegioes(data || []);
   }
 
   async function fetchCategorias() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("categorias")
       .select("id, descricao")
       .order("descricao", { ascending: true });
+    if (error) {
+      console.error("fetchCategorias", error);
+      setCategorias([]);
+      return;
+    }
     setCategorias(data || []);
   }
 
@@ -79,7 +103,7 @@ export default function Times() {
     setEditandoId(null);
     setNome("");
     setAbreviacao("");
-    setCategoriaId(getCategoriaPadraoId()); // padrão "Futebol de Botão", se existir
+    setCategoriaId(getCategoriaPadraoId());
     setEscudoUrl("");
     setCor1("#FFFFFF");
     setCor2("#000000");
@@ -105,6 +129,7 @@ export default function Times() {
     if (!confirm("Tem certeza que deseja excluir este time?")) return;
     const { error } = await supabase.from("times").delete().eq("id", id);
     if (error) {
+      console.error("handleDelete", error);
       alert("❌ Erro ao excluir time.");
       return;
     }
@@ -113,10 +138,11 @@ export default function Times() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!ownerId) return;
     setSaving(true);
 
     const payload = {
-      usuario_id: USUARIO_ID,
+      usuario_id: ownerId,
       nome,
       abreviacao,
       categoria_id: categoriaId || null,
@@ -127,45 +153,54 @@ export default function Times() {
       regiao_id: regiaoId || null,
     };
 
-    if (editandoId) {
-      const { error } = await supabase.from("times").update(payload).eq("id", editandoId);
-      if (error) alert("❌ Erro ao atualizar time.");
-      else {
-        alert("✅ Time atualizado!");
-        await fetchTimes();
-        resetForm();
-        setAbrirCadastro(false);
+    try {
+      if (editandoId) {
+        const { error } = await supabase.from("times").update(payload).eq("id", editandoId);
+        if (error) {
+          console.error("update time error", error);
+          alert("❌ Erro ao atualizar time: " + error.message);
+        } else {
+          alert("✅ Time atualizado!");
+          await fetchTimes(ownerId);
+          resetForm();
+          setAbrirCadastro(false);
+        }
+      } else {
+        const { error } = await supabase.from("times").insert([payload]);
+        if (error) {
+          console.error("insert time error", error);
+          alert("❌ Erro ao cadastrar time: " + error.message);
+        } else {
+          alert("✅ Time cadastrado!");
+          await fetchTimes(ownerId);
+          resetForm();
+          setAbrirCadastro(false);
+        }
       }
-    } else {
-      const { error } = await supabase.from("times").insert([payload]);
-      if (error) alert("❌ Erro ao cadastrar time.");
-      else {
-        alert("✅ Time cadastrado!");
-        await fetchTimes();
-        resetForm();
-        setAbrirCadastro(false);
-      }
+    } catch (err) {
+      console.error("handleSubmit exception", err);
+      alert("❌ Falha inesperada: " + err.message);
     }
 
     setSaving(false);
   }
 
-  // Quick add região via popover (apenas no form)
   async function createRegiao(descricao) {
+    if (!ownerId) return;
     const { data, error } = await supabase
       .from("regioes")
-      .insert([{ usuario_id: USUARIO_ID, descricao }])
+      .insert([{ usuario_id: ownerId, descricao }])
       .select()
       .single();
     if (error) {
-      alert("❌ Erro ao cadastrar região.");
+      console.error("createRegiao error", error);
+      alert("❌ Erro ao cadastrar região: " + error.message);
       return;
     }
-    await fetchRegioes();
-    setRegiaoId(data.id); // já seleciona a recém-criada no form
+    await fetchRegioes(ownerId);
+    setRegiaoId(data.id);
   }
 
-  // Filtro + ordenação
   const timesFiltrados = useMemo(() => {
     let arr = [...(times || [])];
     if (regiaoFiltroId) arr = arr.filter((t) => t.regiao_id === regiaoFiltroId);
@@ -179,6 +214,8 @@ export default function Times() {
     }
     return arr;
   }, [times, ordenacao, regiaoFiltroId]);
+
+  const carregando = authLoading || loading;
 
   return (
     <div className="container">
@@ -194,7 +231,7 @@ export default function Times() {
 
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <label className="label" style={{ margin: 0 }}>Ordenar:</label>
-            <select className="select" value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <select className="select" value={ordenacao} style={{ minWidth: 160}} onChange={(e) => setOrdenacao(e.target.value)}>
               <option value="alfabetica">Ordem alfabética</option>
               <option value="mais_recente">Mais recente</option>
               <option value="mais_antigo">Mais antigo</option>
@@ -205,7 +242,7 @@ export default function Times() {
               className="select"
               value={regiaoFiltroId}
               onChange={(e) => setRegiaoFiltroId(e.target.value)}
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 160}}
             >
               <option value="">Todas</option>
               {regioes.map((r) => (
@@ -216,6 +253,7 @@ export default function Times() {
             <button
               className="btn btn--orange"
               onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+              disabled={!ownerId} // evita criar antes de ter ownerId
             >
               + Novo Time
             </button>
@@ -293,6 +331,7 @@ export default function Times() {
                         className="btn btn--sm btn--orange"
                         title="Nova região"
                         onClick={() => setQuickAddOpen((v) => !v)}
+                        disabled={!ownerId}
                       >
                         +
                       </button>
@@ -326,7 +365,7 @@ export default function Times() {
               </div>
 
               <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn btn--orange" type="submit" disabled={saving}>
+                <button className="btn btn--orange" type="submit" disabled={saving || !ownerId}>
                   {editandoId ? "Salvar Alterações" : "Salvar Time"}
                 </button>
                 <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
@@ -339,7 +378,7 @@ export default function Times() {
       )}
 
       {/* Lista de times em cards detalhados */}
-      {loading ? (
+      {carregando ? (
         <div className="card" style={{ padding: 14 }}>Carregando…</div>
       ) : timesFiltrados.length === 0 ? (
         <div className="card" style={{ padding: 14 }}>Nenhum time encontrado.</div>

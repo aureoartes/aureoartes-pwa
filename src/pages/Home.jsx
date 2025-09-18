@@ -1,10 +1,21 @@
+// v1.1.0 — Autenticação Supabase + RLS (ownerId) — 2025-09-15
 import { Link } from "react-router-dom";
 import TeamIcon from "../components/TeamIcon";
 import StoreBanner from "../components/StoreBanner";
-import { isLogged } from "../config/appUser";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 export default function Home() {
-  const logged = isLogged();
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess || null));
+    return () => sub?.subscription?.unsubscribe?.();
+  }, []);
+
+  const logged = !!session?.user;
+
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#FFF6EF,#FFE7D4)" }}>
       {/* HERO – tons de laranja, CTA único */}
@@ -25,7 +36,7 @@ export default function Home() {
                 Use agora para um <strong>amistoso</strong> ou inicie a partir de uma <strong>partida do seu campeonato</strong>.
               </p>
               <div className="row" style={{ gap: 10, marginTop: 16 }}>
-                <Link to="/placar" className="btn btn--primary" style={{ padding: "12px 18px", fontWeight: 800 }}>
+                <Link to="/placar" className="btn btn--muted" style={{ padding: "12px 18px", fontWeight: 800 }}>
                   Abrir placar
                 </Link>
               </div>
@@ -106,20 +117,12 @@ export default function Home() {
         </section>
       ) : (
         <section className="container" style={{ padding: "20px 16px 8px" }}>
-          <div className="card card--soft" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Entre para acessar tudo</div>
-            <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
-              Sem login você acessa apenas o <strong>Placar</strong> e a <strong>Loja</strong>.<br />
-              Faça login para gerenciar <strong>Times</strong>, <strong>Campeonatos</strong> e seu <strong>Perfil</strong>.
-            </p>
-            <div className="row" style={{ gap: 8, marginTop: 12 }}>
-              <Link to="/login" className="btn btn--primary">Entrar</Link>
-              <Link to="/placar" className="btn btn--muted">Abrir placar</Link>
-            </div>
+          <div className="card card--soft" style={{ padding: 16, textAlign: "center" }}>
+            <p style={{ margin: 0, marginBottom: 8 }}>Faça login para acessar seus <strong>Times</strong> e <strong>Campeonatos</strong>.</p>
+            <Link to="/login" className="btn btn--primary" style={{ fontWeight: 700 }}>Entrar</Link>
           </div>
         </section>
       )}
-
     </div>
   );
 }

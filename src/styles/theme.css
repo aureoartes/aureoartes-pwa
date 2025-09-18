@@ -346,3 +346,253 @@ html, body { overscroll-behavior-y: none; }
   box-shadow: 0 8px 24px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.08);
   border-radius: 10px;
 }
+
+/* =========================
+   EXTENSÕES UTILITÁRIAS
+   (cole no final do theme.css)
+   ========================= */
+
+/* 1) Paleta de estados */
+:root{
+  --success: #10b981;
+  --warning: #f59e0b;
+  --info:    #3b82f6;
+}
+
+/* Botões de estado */
+.btn--success { background: var(--success); color: #fff; }
+.btn--warning { background: var(--warning); color: #111827; }
+.btn--info    { background: var(--info);    color: #fff; }
+
+/* Badges de estado */
+.badge--success{
+  background: #ecfdf5; color: #065f46; font-weight: 900;
+}
+.badge--warning{
+  background: #fffbeb; color: #92400e; font-weight: 900;
+}
+.badge--info{
+  background: #eff6ff; color: #1e40af; font-weight: 900;
+}
+
+/* 2) Tipografia rápida */
+.h1{ font-size: 24px; font-weight: 900; letter-spacing: .3px; }
+.h2{ font-size: 20px; font-weight: 800; letter-spacing: .2px; }
+.h3{ font-size: 17px; font-weight: 800; }
+.small{ font-size: 12px; }
+.truncate{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 3) Layout helpers */
+.flex{ display: flex; }
+.inline-flex{ display: inline-flex; }
+.flex-1{ flex: 1; }
+.items-center{ align-items: center; }
+.items-start{ align-items: flex-start; }
+.items-end{ align-items: flex-end; }
+.justify-between{ justify-content: space-between; }
+.justify-center{ justify-content: center; }
+.gap-2{ gap: 8px; }
+.gap-3{ gap: 12px; }
+.gap-4{ gap: 16px; }
+.mx-auto{ margin-left: auto; margin-right: auto; }
+.p-4{padding: 14px; margin-bottom: 12px;}
+
+/* 4) Ícone dentro do botão (espaçamento padrão) */
+.btn .icon{
+  width: 16px; height: 16px; display: inline-block; line-height: 0;
+}
+.btn .icon + span, .btn span + .icon{ margin-left: 6px; }
+
+/* 5) Estados de carregamento/desabilitado coerentes */
+.btn.is-loading{ position: relative; pointer-events: none; }
+.btn.is-loading::after{
+  content: ""; width: 14px; height: 14px; border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.7);
+  border-top-color: rgba(255,255,255,0);
+  display: inline-block; margin-left: 8px; animation: aa-spin .8s linear infinite;
+}
+@keyframes aa-spin{ to { transform: rotate(360deg); } }
+
+/* 6) Campos com feedback embutido */
+.field--error .input,
+.field--error .select,
+.field--error textarea{
+  border-color: #fecaca;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, .12);
+}
+.field--success .input,
+.field--success .select,
+.field--success textarea{
+  border-color: #bbf7d0;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, .12);
+}
+.help-text{ font-size: 12px; color: var(--muted); margin-top: 6px; }
+.help-text--error{ color: #b91c1c; }
+.help-text--success{ color: #065f46; }
+
+/* 7) Tabela compacta padrão */
+.table{
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.table th, .table td{
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.table thead th{
+  background: #fff7ed;
+  color: #7a4300;
+  font-weight: 900;
+  text-align: left;
+}
+.table tr:hover td{ background: #fffdfa; }
+
+/* 8) Chips/Tags (mais discretas que badge) */
+.chip{
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 4px 8px; border-radius: 999px;
+  background: #f3f4f6; color: #111827; border: 1px solid var(--line);
+}
+.chip__dot{
+  width: 8px; height: 8px; border-radius: 999px;
+  border: 2px solid rgba(0,0,0,.15);
+}
+
+/* 9) Sombras extras para superfícies elevadas */
+.shadow-sm{ box-shadow: var(--shadow-sm); }
+.shadow-md{ box-shadow: var(--shadow-md); }
+.shadow-lg{ box-shadow: var(--shadow-lg); }
+
+/* =========================
+   GUIAS / TABS (padrão global)
+   ========================= */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--radius) var(--radius) 0 0;
+  overflow-x: auto;
+}
+.tabs--soft {
+  background: #fffdfa; /* usado em TimeDetalhes */
+}
+
+.tabs__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 900;
+  letter-spacing: .3px;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+
+  /* transição expandida (sem shorthand) */
+  transition-property: background, color, border-color;
+  transition-duration: .15s;
+  transition-timing-function: ease;
+}
+
+.tabs__item:hover { color: var(--brand-600); }
+.tabs__item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(251, 140, 0, .14);
+  border-radius: 8px 8px 0 0;
+}
+
+.tabs__item.is-active,
+.tabs__item[aria-selected="true"] {
+  background: #fff3e6;
+  color: #a65300;
+  border-bottom-color: var(--brand-600);
+}
+
+/* Variantes */
+.tabs--sm .tabs__item { padding: 10px 12px; font-weight: 800; }
+.tabs--center { justify-content: center; }
+.tabs--stretch .tabs__item { flex: 1; }
+
+/* Painel */
+.tabs__panel { padding: 14px; }
+
+/* Acessibilidade mínima */
+[role="tablist"] .tabs__item { role: tab; }
+
+/* =========================
+   MENSAGENS (alertas/toasts)
+   ========================= */
+.message {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  border: 1px solid transparent;
+}
+
+.message--info {
+  background: #eff6ff;
+  color: #1e40af;
+  border-color: #bfdbfe;
+}
+.message--success {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #bbf7d0;
+}
+.message--warning {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+.message--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.message__icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+.message__content {
+  flex: 1;
+}
+
+/* Espaçamentos extras */
+.mt-5{ margin-top: 20px; }
+.mb-3{ margin-bottom: 12px; }
+.mb-4{ margin-bottom: 16px; }
+.mb-5{ margin-bottom: 20px; }
+.my-3{ margin-top: 12px; margin-bottom: 12px; }
+.my-4{ margin-top: 16px; margin-bottom: 16px; }
+.my-5{ margin-top: 20px; margin-bottom: 20px; }
+
+/* Pilha vertical com gap consistente (opcional) */
+.vstack-4 > * + * { margin-top: 16px; }
+
+/* ===== Pilhas verticais com gap (evita colapso de margens) ===== */
+.stack-4 { display: grid; gap: 16px; }
+.stack-6 { display: grid; gap: 24px; }
+
+/* Wrapper de formulário centralizado */
+.centered-form { max-width: 520px; margin: 0 auto; }
+
+/* Card com espaçamento inferior padrão */
+.card + .card,
+.card + .text-center,
+.text-center + .card {
+  margin-top: 12px; /* ou 16px se preferir mais respiro */
+}

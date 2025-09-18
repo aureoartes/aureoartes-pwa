@@ -1,15 +1,15 @@
-// src/components/QuickAddInline.jsx
+// src/components/QuickAddInline.jsx v1.1.0
 import React, { useEffect, useRef, useState } from "react";
 
 /**
  * QuickAddInline
- * Popover inline para criar um registro simples e retornar o valor criado.
+ * Popover inline para criar rapidamente um registro (ex.: Região).
  *
  * Props:
- * - label: string (ex.: "Nova região")
- * - placeholder: string (ex.: "Ex.: Zona Norte")
- * - onCreate: async (texto: string) => Promise<void>   // pai executa criação (ex.: Supabase)
- * - onClose: () => void                                 // fecha o popover
+ * - label: string           (ex.: "Nova região")
+ * - placeholder: string     (ex.: "Ex.: Zona Norte")
+ * - onCreate: async (texto: string) => Promise<void>   // quem usa faz o insert e trata seleção
+ * - onClose: () => void
  * - align?: "left" | "right" (default: "left")
  */
 export default function QuickAddInline({
@@ -33,6 +33,7 @@ export default function QuickAddInline({
     function onKey(e) {
       if (e.key === "Escape") onClose?.();
     }
+
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -41,8 +42,9 @@ export default function QuickAddInline({
     };
   }, [onClose]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSave(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     const text = value.trim();
     if (!text) return;
     await onCreate?.(text);
@@ -53,6 +55,10 @@ export default function QuickAddInline({
     <div
       ref={wrapRef}
       className="card"
+      role="dialog"
+      aria-label={label}
+      // evita que cliques/submit "vazem" para o formulário pai
+      onClick={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
         top: "calc(100% + 6px)",
@@ -62,23 +68,44 @@ export default function QuickAddInline({
         minWidth: 260,
       }}
     >
-      <form onSubmit={handleSubmit}>
-        <div className="field" style={{ marginBottom: 8 }}>
-          <label className="label" htmlFor="quick-add-inline-input">{label}</label>
-          <input
-            id="quick-add-inline-input"
-            ref={inputRef}
-            className="input"
-            placeholder={placeholder}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </div>
-        <div className="row" style={{ gap: 6 }}>
-          <button className="btn btn--sm btn--orange" type="submit">Salvar</button>
-          <button className="btn btn--sm btn--muted" type="button" onClick={onClose}>Cancelar</button>
-        </div>
-      </form>
+      <div className="field" style={{ marginBottom: 8 }}>
+        <label className="label" htmlFor="quick-add-inline-input">{label}</label>
+        <input
+          id="quick-add-inline-input"
+          ref={inputRef}
+          className="input"
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              // salva sem submeter o form pai
+              handleSave(e);
+            }
+          }}
+        />
+      </div>
+
+      <div className="row" style={{ gap: 6 }}>
+        <button
+          className="btn btn--sm btn--orange"
+          type="button"
+          onClick={handleSave}
+        >
+          Salvar
+        </button>
+        <button
+          className="btn btn--sm btn--muted"
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose?.();
+          }}
+        >
+          Cancelar
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,14 +1,13 @@
-// src/pages/TimeDetalhes.jsx (v1.0.1 — completo)
-import { useEffect, useMemo, useRef, useState } from "react";
+// src/pages/TimeDetalhes.jsx
+// v1.1.1 — Auth Supabase + RLS (ownerId) e categoria via categoria_id
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/auth/AuthProvider";
 import { getContrastShadow } from "../utils/colors";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
-import { getUsuarioId } from "../config/appUser";
-
-const USUARIO_ID = getUsuarioId();
 
 // Hook de responsividade para mobile vertical
 function useIsNarrow(maxWidth = 520) {
@@ -31,6 +30,7 @@ function useIsNarrow(maxWidth = 520) {
 export default function TimeDetalhes() {
   const navigate = useNavigate();
   const { id: timeId } = useParams();
+  const { ownerId, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [time, setTime] = useState(null);
@@ -41,75 +41,116 @@ export default function TimeDetalhes() {
   const [classificacao, setClassificacao] = useState([]);
   const [tab, setTab] = useState("estatisticas");
 
+  // Carrega tudo quando tiver timeId e ownerId
   useEffect(() => {
-    if (!timeId) return;
+    if (authLoading) return;
+    if (!timeId || !ownerId) {
+      setLoading(false);
+      return;
+    }
     (async () => {
       setLoading(true);
-      await Promise.all([
-        fetchTime(),
-        fetchJogadores(),
-        fetchCampeonatosDoTime(),
-        fetchPartidasDoTime(),
-        fetchClassificacaoDoTime(),
-      ]);
-      setLoading(false);
+      try {
+        await Promise.all([
+          fetchTime(ownerId, timeId),
+          fetchJogadores(ownerId, timeId),
+          fetchCampeonatosDoTime(ownerId, timeId),
+          fetchPartidasDoTime(ownerId, timeId),
+          fetchClassificacaoDoTime(ownerId, timeId),
+        ]);
+      } finally {
+        setLoading(false);
+      }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeId]);
+  }, [timeId, ownerId, authLoading]);
 
-  async function fetchTime() {
-    const { data } = await supabase
+  async function fetchTime(owner, id) {
+    const { data, error } = await supabase
       .from("times")
-      .select("*, regioes:regiao_id ( id, descricao )")
-      .eq("usuario_id", USUARIO_ID)
-      .eq("id", timeId)
+      .select("*, regioes:regiao_id ( id, descricao ), categorias:categoria_id ( id, descricao )")
+      .eq("usuario_id", owner)
+      .eq("id", id)
       .single();
+    if (error) {
+      console.error("fetchTime error", error);
+      setTime(null);
+      setRegiao(null);
+      return;
+    }
     setTime(data);
     setRegiao(data?.regioes || null);
   }
 
-  async function fetchJogadores() {
-    const { data } = await supabase
+  async function fetchJogadores(owner, id) {
+    const { data, error } = await supabase
       .from("jogadores")
       .select("*")
-      .eq("usuario_id", USUARIO_ID)
-      .eq("time_id", timeId)
+      .eq("usuario_id", owner)
+      .eq("time_id", id)
       .order("nome", { ascending: true });
+    if (error) {
+      console.error("fetchJogadores error", error);
+      setJogadores([]);
+      return;
+    }
     setJogadores(data || []);
   }
 
-  async function fetchCampeonatosDoTime() {
-    const { data: vincs } = await supabase
+  async function fetchCampeonatosDoTime(owner, id) {
+    // vinculação time-campeonato
+    const { data: vincs, error: ev } = await supabase
       .from("campeonato_times")
       .select("campeonato_id")
-      .eq("time_id", timeId);
-
+      .eq("time_id", id);
+    if (ev) {
+      console.error("fetchCampeonatosDoTime vincs error", ev);
+      setCampeonatos([]);
+      return;
+    }
     const ids = (vincs || []).map((v) => v.campeonato_id);
-    if (ids.length === 0) { setCampeonatos([]); return; }
-
-    const { data } = await supabase
+    if (ids.length === 0) {
+      setCampeonatos([]);
+      return;
+    }
+    const { data, error } = await supabase
       .from("campeonatos")
       .select("id, nome, categoria, formato, numero_equipes")
       .in("id", ids)
-      .eq("usuario_id", USUARIO_ID)
+      .eq("usuario_id", owner)
       .order("nome", { ascending: true });
-
+    if (error) {
+      console.error("fetchCampeonatosDoTime error", error);
+      setCampeonatos([]);
+      return;
+    }
     setCampeonatos(data || []);
   }
 
-  async function fetchPartidasDoTime() {
-    const { data } = await supabase
+  async function fetchPartidasDoTime(owner, id) {
+    const { data, error } = await supabase
       .from("partidas")
-      .select("id, campeonato_id, time_a_id, time_b_id, gols_time_a, gols_time_b, encerrada")
-      .or(`time_a_id.eq.${timeId},time_b_id.eq.${timeId}`);
+      .select("id, campeonato_id, time_a_id, time_b_id, gols_time_a, gols_time_b, encerrada, data_hora")
+      .eq("usuario_id", owner)
+      .or(`time_a_id.eq.${id},time_b_id.eq.${id}`);
+    if (error) {
+      console.error("fetchPartidasDoTime error", error);
+      setPartidas([]);
+      return;
+    }
     setPartidas(data || []);
   }
 
-  async function fetchClassificacaoDoTime() {
-    const { data } = await supabase
+  async function fetchClassificacaoDoTime(owner, id) {
+    const { data, error } = await supabase
       .from("classificacao")
       .select("*")
-      .eq("time_id", timeId);
+      .eq("usuario_id", owner)
+      .eq("time_id", id);
+    if (error) {
+      console.error("fetchClassificacaoDoTime error", error);
+      setClassificacao([]);
+      return;
+    }
     setClassificacao(data || []);
   }
 
@@ -121,8 +162,7 @@ export default function TimeDetalhes() {
       const souA = p.time_a_id === timeId;
       const meusGols = souA ? (p.gols_time_a ?? 0) : (p.gols_time_b ?? 0);
       const golsOponente = souA ? (p.gols_time_b ?? 0) : (p.gols_time_a ?? 0);
-      gp += meusGols;
-      gc += golsOponente;
+      gp += meusGols; gc += golsOponente;
       if (meusGols > golsOponente) v++;
       else if (meusGols < golsOponente) d++;
       else e++;
@@ -130,9 +170,24 @@ export default function TimeDetalhes() {
     return { partidas: jogos, vitorias: v, empates: e, derrotas: d, golsPro: gp, golsContra: gc, saldo: gp - gc };
   }, [partidas, timeId]);
 
-  if (loading) return <div className="container"><div className="card" style={{ padding: 14 }}>Carregando…</div></div>;
-
-  if (!time) return <div className="container"><div className="card" style={{ padding: 14 }}>Time não encontrado. <button className="btn btn--muted" onClick={() => navigate(-1)}>Voltar</button></div></div>;
+  if (authLoading) {
+    return <div className="container"><div className="card" style={{ padding: 14 }}>Carregando usuário…</div></div>;
+  }
+  if (!ownerId) {
+    return <div className="container"><div className="card" style={{ padding: 14 }}>Faça login para ver os detalhes do time.</div></div>;
+  }
+  if (loading) {
+    return <div className="container"><div className="card" style={{ padding: 14 }}>Carregando…</div></div>;
+  }
+  if (!time) {
+    return (
+      <div className="container">
+        <div className="card" style={{ padding: 14 }}>
+          Time não encontrado. <button className="btn btn--muted" onClick={() => navigate(-1)}>Voltar</button>
+        </div>
+      </div>
+    );
+  }
 
   const c1 = time.cor1 || "#FFFFFF";
   const c2 = time.cor2 || "#000000";
@@ -140,25 +195,24 @@ export default function TimeDetalhes() {
 
   return (
     <div className="container">
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
         <Link to="/times" className="btn btn--muted">← Voltar</Link>
       </div>
 
       <div className="card team-card">
         <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
         <div className="team-card__badge" style={{ "--cd": cd, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}>
-          {time.escudo_url ? (
-            <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
-          ) : (
-            <span className="team-card__sigla" style={{ color: cd, textShadow: getContrastShadow(cd) }}>
-              {(time.abreviacao || "?").toUpperCase()}
-            </span>
-          )}
+          {time.escudo_url
+            ? <img src={time.escudo_url} alt={`Escudo ${time.nome}`} />
+            : <span className="team-card__sigla" style={{ color: cd, textShadow: getContrastShadow(cd) }}>
+                {(time.abreviacao || "?").toUpperCase()}
+              </span>}
         </div>
         <div className="team-card__info team-card__info--with-badge">
           <div>
             <div className="team-card__title">{time.nome}</div>
-            <div className="team-card__subtitle">{time.categoria || "—"}</div>
+            {/* categoria via relação categorias:categoria_id */}
+            <div className="team-card__subtitle">{time.categorias?.descricao || "—"}</div>
             {regiao?.descricao && (<div className="text-muted" style={{ marginTop: 4 }}>Região: {regiao.descricao}</div>)}
           </div>
           <div className="team-card__dots">
@@ -169,7 +223,6 @@ export default function TimeDetalhes() {
         </div>
       </div>
 
-      {/* Card das abas */}
       <div className="card" style={{ padding: 0, overflow: "visible", marginTop: 12 }}>
         <div role="tablist" style={{ display: "flex", borderBottom: "1px solid var(--line)", background: "#fffdfa" }}>
           <TabButton active={tab === "estatisticas"} onClick={() => setTab("estatisticas")}>Estatísticas</TabButton>
@@ -178,20 +231,8 @@ export default function TimeDetalhes() {
         </div>
 
         <div style={{ padding: 14 }}>
-          {tab === "estatisticas" && (
-            <EstatisticasBlock
-              stats={stats}
-              totalCampeonatos={campeonatos?.length || 0}
-              totalJogadores={jogadores?.length || 0}
-            />
-          )}
-          {tab === "campeonatos" && (
-            <CampeonatosBlock
-              campeonatos={campeonatos}
-              partidas={partidas}
-              classificacao={classificacao}
-            />
-          )}
+          {tab === "estatisticas" && <EstatisticasBlock stats={stats} totalCampeonatos={campeonatos?.length || 0} totalJogadores={jogadores?.length || 0} />}
+          {tab === "campeonatos" && <CampeonatosBlock campeonatos={campeonatos} partidas={partidas} classificacao={classificacao} />}
           {tab === "jogadores" && <JogadoresBlock jogadores={jogadores} time={time} />}
         </div>
       </div>
@@ -254,7 +295,7 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
 
   const header = (
     <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-      <span className="badge">{(campeonatos?.length || 0)} campeonato(s)</span>
+      <span className="badge">{campeonatos?.length || 0} campeonato(s)</span>
       <Link className="btn btn--orange" to="/campeonatos">Gerenciar campeonatos</Link>
     </div>
   );
@@ -277,52 +318,25 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
           const temClassificacao = classificacao?.some((cl) => cl.campeonato_id === c.id);
 
           const titulo = c.nome;
-          const subtitulo = [
-            c.categoria || "—",
-            c.formato || "—",
-            c.numero_equipes ? `${c.numero_equipes} equipes` : null,
-          ].filter(Boolean).join(" • ");
+          const subtitulo = [c.categoria || "—", c.formato || "—", c.numero_equipes ? `${c.numero_equipes} equipes` : null]
+            .filter(Boolean)
+            .join(" • ");
 
           const acoesWide = (
             <>
-              <Link
-                className="btn btn--sm btn--orange"
-                to={`/campeonatos/${c.id}/partidas`}
-                aria-disabled={!temPartidas}
-                onClick={guard(temPartidas)}
-              >
-                Ver partidas
-              </Link>
-              <Link
-                className="btn btn--sm btn--muted"
-                to={`/campeonatos/${c.id}/tabela`}
-                aria-disabled={!temClassificacao}
-                onClick={guard(temClassificacao)}
-              >
-                Ver tabela
-              </Link>
+              <Link className="btn btn--sm btn--orange" to={`/campeonatos/${c.id}/partidas`} aria-disabled={!temPartidas} onClick={guard(temPartidas)}>Ver partidas</Link>
+              <Link className="btn btn--sm btn--muted" to={`/campeonatos/${c.id}/tabela`} aria-disabled={!temClassificacao} onClick={guard(temClassificacao)}>Ver tabela</Link>
             </>
           );
 
-          // ⚠️ AQUI dentro do map — `c` está no escopo correto
           const acoesNarrow = (
             <MenuAcoesNarrow
               id={c.id}
               openMenuId={openMenuId}
               setOpenMenuId={setOpenMenuId}
               actions={[
-                {
-                  label: "Ver partidas",
-                  variant: "orange",
-                  to: `/campeonatos/${c.id}/partidas`,
-                  disabled: !temPartidas,
-                },
-                {
-                  label: "Ver tabela",
-                  variant: "muted",
-                  to: `/campeonatos/${c.id}/tabela`,
-                  disabled: !temClassificacao,
-                },
+                { label: "Ver partidas", variant: "orange", to: `/campeonatos/${c.id}/partidas`, disabled: !temPartidas },
+                { label: "Ver tabela", variant: "muted", to: `/campeonatos/${c.id}/tabela`, disabled: !temClassificacao },
               ]}
             />
           );
@@ -344,9 +358,10 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
 
 function JogadoresBlock({ jogadores, time }) {
   const total = jogadores?.length || 0;
+
   const header = (
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-      <span className="badge">{total} jogador(es)</span>
+      <div className="text-muted">{total} jogador(es)</div>
       <Link to={`/jogadores?time=${time.id}`} className="btn btn--orange">Gerenciar jogadores</Link>
     </div>
   );
@@ -369,16 +384,9 @@ function JogadoresBlock({ jogadores, time }) {
           const subtitulo = [j.nome, (j.numero || j.numero === 0) && `#${j.numero}`, j.posicao]
             .filter(Boolean)
             .join(" — ");
-          const icone = (<TeamIcon team={time} size={24} />);
+          const icone = <TeamIcon team={time} size={24} />;
 
-          return (
-            <ListaCompactaItem
-              key={j.id}
-              icone={icone}
-              titulo={titulo}
-              subtitulo={subtitulo}
-            />
-          );
+          return <ListaCompactaItem key={j.id} icone={icone} titulo={titulo} subtitulo={subtitulo} />;
         })}
       </ul>
     </div>

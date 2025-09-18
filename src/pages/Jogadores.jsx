@@ -1,16 +1,15 @@
-// src/pages/Jogadores.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+// v1.1.2 — Jogadores — header invertido + limites de campos + opções de posição + remover "Fechar"
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
+import { supabase } from "@/lib/supabaseClient";
 import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
-import { getUsuarioId } from "../config/appUser";
+import { useAuth } from "@/auth/AuthProvider"; // troque para "../auth/AuthProvider" se não usar alias "@"
 
-const USUARIO_ID = getUsuarioId();
 const SEM_EQUIPE = "__none__";
 
-/* Hook para detectar viewport estreita (mobile vertical) */
+/* Hook: viewport estreita (mobile) */
 function useIsNarrow(maxWidth = 520) {
   const [narrow, setNarrow] = useState(
     typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
@@ -31,8 +30,11 @@ function useIsNarrow(maxWidth = 520) {
 export default function Jogadores() {
   const isNarrow = useIsNarrow(520);
   const location = useLocation();
+  const navigate = useNavigate();
   const urlParams = new URLSearchParams(location.search);
   const timeParam = urlParams.get("time") || "";
+
+  const { ownerId, loading: authLoading } = useAuth();
 
   // Dados
   const [jogadores, setJogadores] = useState([]);
@@ -58,27 +60,38 @@ export default function Jogadores() {
 
   // Inicial
   useEffect(() => {
+    if (authLoading) return;
+    if (!ownerId) {
+      setTimes([]); setTimesById({}); setJogadores([]);
+      setLoading(false);
+      return;
+    }
     (async () => {
       setLoading(true);
       await Promise.all([fetchTimes(), fetchJogadores()]);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading, ownerId]);
 
-  // Recarrega lista no filtro por time
+  // Recarrega lista ao trocar filtro por time
   useEffect(() => {
+    if (!ownerId) return;
     fetchJogadores();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeFiltroId]);
+  }, [timeFiltroId, ownerId]);
 
   async function fetchTimes() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("times")
-      .select("*")
-      .eq("usuario_id", USUARIO_ID)
+      .select("id, nome, abreviacao, cor1, cor2, cor_detalhe")
+      .eq("usuario_id", ownerId)
       .order("nome", { ascending: true });
-
+    if (error) {
+      setTimes([]);
+      setTimesById({});
+      return;
+    }
     const arr = data || [];
     setTimes(arr);
     const map = {};
@@ -87,14 +100,15 @@ export default function Jogadores() {
   }
 
   async function fetchJogadores() {
-    let query = supabase.from("jogadores").select("*").eq("usuario_id", USUARIO_ID);
+    if (!ownerId) return;
+    let query = supabase.from("jogadores").select("*").eq("usuario_id", ownerId);
     if (timeFiltroId === SEM_EQUIPE) {
       query = query.is("time_id", null);
     } else if (timeFiltroId) {
       query = query.eq("time_id", timeFiltroId);
     }
-    const { data } = await query.order("nome", { ascending: true });
-    setJogadores(data || []);
+    const { data, error } = await query.order("nome", { ascending: true });
+    setJogadores(error ? [] : (data || []));
   }
 
   function resetForm() {
@@ -137,15 +151,16 @@ export default function Jogadores() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!ownerId) return;
     setSaving(true);
 
     const payload = {
-      usuario_id: USUARIO_ID,
+      usuario_id: ownerId,
       time_id: timeId || null,         // permite sem equipe
-      nome,
-      apelido: apelido || null,
+      nome: (nome || "").slice(0, 30).trim(),
+      apelido: apelido ? apelido.slice(0, 15).trim() : null,
       numero: numero === "" ? null : Number(numero),
-      posicao: posicao || null,        // pode ficar em branco
+      posicao: posicao ? posicao.slice(0, 10).trim() : null, // pode ficar em branco
       foto_url: fotoUrl || null,
     };
 
@@ -189,39 +204,42 @@ export default function Jogadores() {
     return arr;
   }, [jogadores, ordenacao, timesById]);
 
+  // ======= Estados de carregamento =======
+  if (authLoading) {
+    return (
+      <div className="container">
+        <div className="card">Carregando autenticação…</div>
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="container">
+        <div className="card" style={{ padding: 14 }}>Carregando…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
-      {/* Header/Filtros */}
+      {/* Header: ESQUERDA = título/subtítulo; DIREITA = filtros/ordenacao + ações (igual Times) */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          {/* ESQUERDA: título */}
           <div>
             <h1 style={{ margin: 0 }}>Jogadores</h1>
             <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Cadastre, edite e gerencie jogadores. Use os filtros para focar em um time.
+              Cadastre, edite e gerencie jogadores. 
             </div>
           </div>
 
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <label className="label" style={{ margin: 0 }}>Time:</label>
-            <select
-              className="select"
-              value={timeFiltroId}
-              onChange={(e) => setTimeFiltroId(e.target.value)}
-              style={{ minWidth: 200 }}
-            >
-              <option value="">Todos</option>
-              <option value={SEM_EQUIPE}>Sem equipe</option>
-              {times.map((t) => (
-                <option key={t.id} value={t.id}>{t.nome}</option>
-              ))}
-            </select>
-
-            <label className="label" style={{ marginLeft: 8 }}>Ordenar por:</label>
+          <div className="row" style={{ gap: 8}}>
+            <label className="label" style={{ margin: 0 }}>Ordenar:</label>
             <select
               className="select"
               value={ordenacao}
               onChange={(e) => setOrdenacao(e.target.value)}
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 100, maxWidth: 250 }}
             >
               <option value="nome">Nome</option>
               <option value="apelido">Apelido</option>
@@ -230,27 +248,42 @@ export default function Jogadores() {
               <option value="posicao">Posição</option>
             </select>
 
-            <button className="btn btn--orange" onClick={startNovo}>
-              + Novo Jogador
-            </button>
+            <label className="label" style={{ marginLeft: 8 }}>Time:</label>
+            <select
+              className="select"
+              value={timeFiltroId}
+              onChange={(e) => setTimeFiltroId(e.target.value)}
+              style={{ minWidth: 100, maxWidth: 250 }}
+            >
+              <option value="">Todos</option>
+              <option value={SEM_EQUIPE}>Sem equipe</option>
+              {times.map((t) => (
+                <option key={t.id} value={t.id}>{t.nome}</option>
+              ))}
+            </select>
+
+            <button className="btn btn--orange" onClick={startNovo}>+ Novo Jogador</button>
+            <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
           </div>
         </div>
       </div>
 
-      {/* Cadastro (oculto) */}
+      {/* Cadastro (sem botão Fechar) */}
       {abrirCadastro && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
-            <div className="collapsible__title">{editandoId ? "Editar Jogador" : "Cadastrar Jogador"}</div>
+          <div style={{ padding: 12, paddingBottom: 0 }}>
+            <div className="collapsible__title" style={{ marginBottom: 8 }}>
+              {editandoId ? "Editar Jogador" : "Cadastrar Jogador"}
+            </div>
           </div>
 
           <div style={{ padding: 12 }}>
             <form onSubmit={handleSubmit}>
               <div className="grid grid-2">
                 <div className="field">
-                  <label className="label">Time (opcional)</label>
+                  <label className="label">Time</label>
                   <select className="select" value={timeId} onChange={(e) => setTimeId(e.target.value)}>
-                    <option value="">Sem equipe</option>
+                    <option value="">— Sem equipe —</option>
                     {times.map((t) => (
                       <option key={t.id} value={t.id}>{t.nome}</option>
                     ))}
@@ -259,22 +292,39 @@ export default function Jogadores() {
 
                 <div className="field">
                   <label className="label">Nome</label>
-                  <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} required />
+                  <input
+                    className="input"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value.slice(0, 30))}
+                    maxLength={30}
+                    required
+                  />
                 </div>
 
                 <div className="field">
                   <label className="label">Apelido (opcional)</label>
-                  <input className="input" value={apelido} onChange={(e) => setApelido(e.target.value)} />
+                  <input
+                    className="input"
+                    value={apelido}
+                    onChange={(e) => setApelido(e.target.value.slice(0, 15))}
+                    maxLength={15}
+                  />
                 </div>
 
                 <div className="field">
                   <label className="label">Número (opcional)</label>
                   <input
-                    className="input"
-                    value={numero}
-                    onChange={(e) => setNumero(e.target.value.replace(/\D+/g, ""))}
+                    className="input mono"
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]{0,2}"
+                    value={numero}
+                    onChange={(e) => {
+                      const onlyDigits = (e.target.value || "").replace(/[^0-9]+/g, "");
+                      setNumero(onlyDigits.slice(0, 2));
+                    }}
                     placeholder="Ex.: 10"
+                    style={{ maxWidth: 100 }}
                   />
                 </div>
 
@@ -282,12 +332,13 @@ export default function Jogadores() {
                   <label className="label">Posição (opcional)</label>
                   <input
                     className="input"
+                    list="lista-posicoes"
                     value={posicao}
-                    onChange={(e) => setPosicao(e.target.value)}
-                    list="posicoes-sugeridas"
-                    placeholder="Ex.: DEF (ou deixe em branco)"
+                    onChange={(e) => setPosicao(e.target.value.slice(0, 10))}
+                    maxLength={10}
+                    placeholder="Ex.: MEI"
                   />
-                  <datalist id="posicoes-sugeridas">
+                  <datalist id="lista-posicoes">
                     <option value="GOL" />
                     <option value="DEF" />
                     <option value="MEI" />
@@ -314,65 +365,62 @@ export default function Jogadores() {
         </div>
       )}
 
-      {/* Lista compacta */}
-      {loading ? (
-        <div className="card" style={{ padding: 14 }}>Carregando…</div>
-      ) : jogadoresOrdenados.length === 0 ? (
-        <div className="card" style={{ padding: 14 }}>
-          Nenhum jogador encontrado
-          {timeFiltroId === SEM_EQUIPE ? " (sem equipe)." : timeFiltroId ? " para o time selecionado." : "."}
-        </div>
-      ) : (
-        <ul className="list card">
-          {jogadoresOrdenados.map((j) => {
-            const t = timesById[j.time_id];
-            const titulo = j.apelido?.trim() ? j.apelido : j.nome;
+      {/* Lista */}
+      <div className="card" style={{ padding: 0 }}>
+        {jogadoresOrdenados.length === 0 ? (
+          <div className="list__item">Nenhum jogador encontrado.</div>
+        ) : (
+          <ul className="list">
+            {jogadoresOrdenados.map((j) => {
+              const time = j.time_id ? timesById[j.time_id] : null;
+              const title = j.nome || "Jogador";
+              const subtitleParts = [
+                j.apelido || "—",
+                time?.nome || "Sem equipe",
+                j.posicao || "—",
+                (j.numero != null ? `#${j.numero}` : "—"),
+              ];
+              return (
+                <li key={j.id} className="list__item">
+                  <div className="list__left" style={{ gap: 10 }}>
+                    <TeamIcon
+                      team={time || { cor1: "#e5e7eb", cor2: "#9ca3af", cor_detalhe: "#111827" }}
+                      size={22}
+                      title={time?.nome || "Sem equipe"}
+                    />
+                    <div>
+                      <div className="list__title">{title}</div>
+                      <div className="list__subtitle">
+                        {subtitleParts.join(" · ")}
+                      </div>
+                    </div>
+                  </div>
 
-            const partes = [];
-            if (j.nome) partes.push(j.nome);
-            if (j.numero || j.numero === 0) partes.push(`#${j.numero}`);
-            if (j.posicao) partes.push(j.posicao);
-            if (t?.nome) partes.push(t.nome);
-            const subtitulo = partes.join(" — ");
-
-            const icone = (
-              <TeamIcon
-                team={t || { cor1: "#FFFFFF", cor2: "#000000", cor_detalhe: "#999999" }}
-                size={24}
-              />
-            );
-
-            const acoesWide = (
-              <>
-                <button onClick={() => startEditar(j)} className="btn btn--sm btn--orange">Editar</button>
-                <button onClick={() => handleDelete(j.id)} className="btn btn--sm btn--red">Excluir</button>
-              </>
-            );
-
-            const acoesNarrow = (
-              <MenuAcoesNarrow
-                id={j.id}
-                openMenuId={openMenuId}
-                setOpenMenuId={setOpenMenuId}
-                actions={[
-                  { label: "Editar",  variant: "orange", onClick: () => startEditar(j) },
-                  { label: "Excluir", variant: "red",    onClick: () => handleDelete(j.id) },
-                ]}
-              />
-            );
-
-            return (
-              <ListaCompactaItem
-                key={j.id}
-                icone={icone}
-                titulo={titulo}
-                subtitulo={subtitulo}
-                acoes={isNarrow ? acoesNarrow : acoesWide}
-              />
-            );
-          })}
-        </ul>
-      )}
+                  <div className="list__right">
+                    {/* Ações em menu para telas estreitas */}
+                    {isNarrow ? (
+                      <MenuAcoesNarrow
+                        id={j.id}
+                        openMenuId={openMenuId}
+                        setOpenMenuId={setOpenMenuId}
+                        actions={[
+                          { label: "Editar", variant: "muted", onClick: () => startEditar(j) },
+                          { label: "Excluir", variant: "red", onClick: () => handleDelete(j.id) },
+                        ]}
+                      />
+                    ) : (
+                      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                        <button className="btn btn--muted" onClick={() => startEditar(j)}>Editar</button>
+                        <button className="btn btn--red" onClick={() => handleDelete(j.id)}>Excluir</button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,11 +1,12 @@
-// src/pages/CampeonatoPartidas.jsx (V3.5)
-// - Ordenação das rodadas
+// v1.1.0 — Partidas do Campeonato — Autenticação Supabase + RLS (ownerId)
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";         // <- named export
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
+import { useAuth } from "@/auth/AuthProvider"; // se não usar alias "@", troque para "../auth/AuthProvider"
 
+// ===== Helpers de UI já existentes =====
 function useIsNarrow(maxWidth = 640) {
   const [narrow, setNarrow] = useState(
     typeof window !== "undefined"
@@ -24,12 +25,10 @@ function useIsNarrow(maxWidth = 640) {
   }, [maxWidth]);
   return narrow;
 }
-
 function timeLabel(p, side, isNarrow) {
   const t = side === "a" ? p.time_a : p.time_b;
   return isNarrow ? (t?.abreviacao || "—") : (t?.nome || "—");
 }
-
 function toLocalDateTimeLabel(ts, fallback = "Data a definir") {
   if (!ts) return fallback;
   try {
@@ -45,6 +44,7 @@ export default function CampeonatoPartidas() {
   const { id: campeonatoId } = useParams();
   const navigate = useNavigate();
   const isNarrow = useIsNarrow(640);
+  const { ownerId, loading: authLoading } = useAuth(); // <<< novo
 
   // dados
   const [camp, setCamp] = useState(null);
@@ -72,16 +72,25 @@ export default function CampeonatoPartidas() {
   // mobile menu
   const [openMenuId, setOpenMenuId] = useState(null);
 
-  // carregar dados iniciais
+  // carregar dados iniciais com ownerId
   useEffect(() => {
+    if (authLoading) return;            // espera auth resolver
+    if (!ownerId) {                     // sem usuário => limpa e finaliza
+      setCamp(null);
+      setPartidas([]);
+      setLoading(false);
+      return;
+    }
     (async () => {
       setLoading(true);
       setErrorMsg("");
       try {
+        // Segurança: garante que o campeonato é do dono atual
         const { data: c, error: e1 } = await supabase
           .from("campeonatos")
           .select("*")
           .eq("id", campeonatoId)
+          .eq("usuario_id", ownerId)
           .single();
         if (e1) throw e1;
         setCamp(c || null);
@@ -92,7 +101,7 @@ export default function CampeonatoPartidas() {
         setLoading(false);
       }
     })();
-  }, [campeonatoId]);
+  }, [authLoading, ownerId, campeonatoId]);
 
   async function recarregarPartidas() {
     const { data: ps, error } = await supabase
@@ -126,19 +135,21 @@ export default function CampeonatoPartidas() {
       return va.localeCompare(vb);
     });
   }, [partidas]);
+
   const gruposDisponiveis = useMemo(() => {
     if (!partidas?.length) return [];
     const s = new Set(partidas.map((p) => p.grupo).filter(Boolean));
     return Array.from(s.values()).sort((a, b) => a - b);
   }, [partidas]);
 
-  // hasMataMata definido acima (antes dos returns)
-  const hasMataMata = useMemo(() => Array.isArray(partidas) && partidas.some((p) => !!p.is_mata_mata), [partidas]);
+  const hasMataMata = useMemo(
+    () => Array.isArray(partidas) && partidas.some((p) => !!p.is_mata_mata),
+    [partidas]
+  );
 
   // aplicar filtros
   const partidasFiltradas = useMemo(() => {
     let arr = [...(partidas || [])];
-
     if (fStatus === "nao_iniciadas") arr = arr.filter((p) => !p.encerrada);
     if (fStatus === "encerradas") arr = arr.filter((p) => p.encerrada);
 
@@ -149,11 +160,10 @@ export default function CampeonatoPartidas() {
     }
 
     if (fGrupo) arr = arr.filter((p) => String(p.grupo) === String(fGrupo));
-
     return arr;
   }, [partidas, fStatus, fRodadaFase, fGrupo]);
 
-  // agrupamento visual
+  // agrupamento visual (inalterado)
   const gruposDeExibicao = useMemo(() => {
     const map = new Map();
     for (const p of partidasFiltradas) {
@@ -167,51 +177,40 @@ export default function CampeonatoPartidas() {
 
     const fasePeso = (etapaRaw) => {
       if (!etapaRaw) return 99;
-
-      // normaliza: minúsculas, sem acento, "_" -> " ", compacta espaços
       let e = String(etapaRaw)
         .toLowerCase()
         .normalize("NFD").replace(/\p{Diacritic}/gu, "")
         .replace(/_/g, " ")
         .replace(/\s+/g, " ")
         .trim();
-
-      // converte variações de "3º lugar" para a forma canônica do banco
-      if (/\b(3o|3°|3º)\s+lugar\b/.test(e) || /\bterceiro\s+lugar\b/.test(e)) {
-        e = "terceiro_lugar";
-      }
-
-      // aliases → forma canônica (espelhando _etapa_rank)
+      if (/\b(3o|3°|3º)\s+lugar\b/.test(e) || /\bterceiro\s+lugar\b/.test(e)) e = "terceiro_lugar";
       const aliases = {
-        "preliminar": "preliminar",
+        preliminar: "preliminar",
         "64-avos": "64-avos",
         "64avos": "64-avos",
         "32-avos": "32-avos",
         "32avos": "32-avos",
         "16-avos": "16-avos",
         "16avos": "16-avos",
-        "oitavas": "oitavas",
-        "quartas": "quartas",
-        "semifinal": "semifinal",
+        oitavas: "oitavas",
+        quartas: "quartas",
+        semifinal: "semifinal",
         "semi final": "semifinal",
-        "terceiro lugar": "terceiro_lugar", // <- canônico do banco
-        "final": "final",
+        "terceiro lugar": "terceiro_lugar",
+        final: "final",
       };
-
       const norm = aliases[e] || e;
-
       const pesos = {
-        "preliminar": 1,
+        preliminar: 1,
         "64-avos": 2,
         "32-avos": 3,
         "16-avos": 4,
-        "oitavas": 5,
-        "quartas": 6,
-        "semifinal": 7,
-        "terceiro_lugar": 8,
-        "final": 9,
+        oitavas: 5,
+        quartas: 6,
+        semifinal: 7,
+        terceiro_lugar: 8,
+        final: 9,
       };
-
       return pesos[norm] ?? 99;
     };
 
@@ -229,22 +228,15 @@ export default function CampeonatoPartidas() {
       const [kb] = b;
       const aRod = ka.startsWith("RODADA:");
       const bRod = kb.startsWith("RODADA:");
-
-      if (aRod && bRod) {
-        return Number(ka.split(":")[1]) - Number(kb.split(":")[1]);
-      }
+      if (aRod && bRod) return Number(ka.split(":")[1]) - Number(kb.split(":")[1]);
       if (aRod) return -1;
       if (bRod) return 1;
-
       const { etapa: ea, jogoN: ja } = parseFaseKey(ka);
       const { etapa: eb, jogoN: jb } = parseFaseKey(kb);
-
       const pa = fasePeso(ea);
       const pb = fasePeso(eb);
       if (pa !== pb) return pa - pb;
-
       if (ja !== jb) return ja - jb;
-
       return ka.localeCompare(kb);
     });
 
@@ -256,7 +248,7 @@ export default function CampeonatoPartidas() {
     }));
   }, [partidasFiltradas]);
 
-  // edição helpers
+  // edição helpers (inalterados, com validações de ida/volta e pênaltis)
   function abrirEdicao(p) {
     setErroForm("");
     setEditandoId(p.id);
@@ -269,20 +261,18 @@ export default function CampeonatoPartidas() {
       dataHora: p.data_hora ? new Date(p.data_hora).toISOString().slice(0, 16) : "",
     });
   }
-
   function validar(payload) {
     const ga = payload.gols_time_a;
     const gb = payload.gols_time_b;
-    if (ga === "" || ga === null || gb === "" || gb === null) return "Informe os gols dos dois times para salvar.";
+    if (ga === "" || ga === null || gb === "" || gb === null)
+      return "Informe os gols dos dois times para salvar.";
     return null;
   }
-
   async function cancelarEdicao() {
     setEditandoId(null);
     setErroForm("");
     await recarregarPartidas();
   }
-
   async function salvarEdicao() {
     if (!editandoId) return;
 
@@ -307,9 +297,7 @@ export default function CampeonatoPartidas() {
     const empateNoTempo = payload.gols_time_a === payload.gols_time_b;
 
     if (partidaAtual.is_mata_mata) {
-      // --- MATA-MATA ---
       if (camp?.ida_volta === true && partidaAtual.perna === 2 && partidaAtual.chave_id) {
-        // SEGUNDO JOGO (VOLTA): validar AGREGADO por ID de time (mando pode inverter)
         const { data: jogos } = await supabase
           .from("partidas")
           .select("id, perna, gols_time_a, gols_time_b, encerrada, time_a_id, time_b_id")
@@ -328,7 +316,6 @@ export default function CampeonatoPartidas() {
           const somaB = (ida.gols_time_b || 0) + voltaGolsParaIdaB;
 
           if (somaA === somaB) {
-            // agregado empatado após ida+volta → pênaltis obrigatórios e diferentes
             if (payload.penaltis_time_a == null || payload.penaltis_time_b == null) {
               setErroForm("Ida+volta empatadas no agregado — informe os pênaltis.");
               return;
@@ -338,21 +325,17 @@ export default function CampeonatoPartidas() {
               return;
             }
           } else {
-            // agregado decidiu → ignorar pênaltis
             payload.penaltis_time_a = null;
             payload.penaltis_time_b = null;
           }
         } else {
-          // Regra: manter sem pênaltis agora; usuário pode salvar placar da volta normalmente.
           payload.penaltis_time_a = null;
           payload.penaltis_time_b = null;
         }
       } else if (camp?.ida_volta === true && (partidaAtual.perna === 1 || !partidaAtual.perna)) {
-        // PRIMEIRO JOGO (IDA): empates são permitidos; zera pênaltis
         payload.penaltis_time_a = null;
         payload.penaltis_time_b = null;
       } else {
-        // JOGO ÚNICO (ida_volta === false) OU configuração indefinida
         if (camp?.ida_volta === false || camp?.ida_volta == null) {
           if (empateNoTempo) {
             if (payload.penaltis_time_a == null || payload.penaltis_time_b == null) {
@@ -368,13 +351,11 @@ export default function CampeonatoPartidas() {
             payload.penaltis_time_b = null;
           }
         } else {
-          // fallback seguro
           payload.penaltis_time_a = null;
           payload.penaltis_time_b = null;
         }
       }
     } else {
-      // --- NÃO É MATA-MATA ---
       payload.penaltis_time_a = null;
       payload.penaltis_time_b = null;
     }
@@ -406,6 +387,13 @@ export default function CampeonatoPartidas() {
     setFGrupo("");
   }
 
+  // ====== Estados de carregamento/erro ======
+  if (authLoading)
+    return (
+      <div className="container">
+        <div className="card">Carregando autenticação…</div>
+      </div>
+    );
   if (loading)
     return (
       <div className="container">
@@ -426,7 +414,7 @@ export default function CampeonatoPartidas() {
     );
 
   const showTabelaBtn = ["pontos_corridos", "grupos"].includes((camp?.formato || "").toLowerCase());
-  
+
   return (
     <div className="container">
       {/* Cabeçalho */}
@@ -447,9 +435,7 @@ export default function CampeonatoPartidas() {
                 Tabela
               </Link>
             )}
-            <Link to={`/campeonatos`} className="btn btn--muted">
-              Voltar
-            </Link>
+            <Link to={`/campeonatos`} className="btn btn--muted">Voltar</Link>
           </div>
         </div>
 
@@ -472,11 +458,7 @@ export default function CampeonatoPartidas() {
                 {rodadasFases.map((rf) => {
                   const [k, v] = rf.split(":");
                   const label = k === "rodada" ? `Rodada ${v}` : `Fase ${v}`;
-                  return (
-                    <option key={rf} value={rf}>
-                      {label}
-                    </option>
-                  );
+                  return <option key={rf} value={rf}>{label}</option>;
                 })}
               </select>
             </div>
@@ -488,18 +470,14 @@ export default function CampeonatoPartidas() {
               <select className="select" value={fGrupo} onChange={(e) => setFGrupo(e.target.value)}>
                 <option value="">Todos</option>
                 {gruposDisponiveis.map((g) => (
-                  <option key={g} value={g}>
-                    Grupo {g}
-                  </option>
+                  <option key={g} value={g}>Grupo {g}</option>
                 ))}
               </select>
             </div>
           )}
 
           <div className="field" style={{ alignSelf: "flex-end" }}>
-            <button className="btn btn--muted" onClick={limparFiltros}>
-              Limpar filtros
-            </button>
+            <button className="btn btn--muted" onClick={limparFiltros}>Limpar filtros</button>
           </div>
         </div>
       </div>
@@ -513,22 +491,23 @@ export default function CampeonatoPartidas() {
             <div key={grupo.header}>
               <div
                 className="list__section"
-                style={{
-                  padding: "8px 12px",
-                  fontWeight: 600,
-                  background: "#f3f4f6",
-                  borderTop: "1px solid #e5e7eb",
-                }}
+                style={{ padding: "8px 12px", fontWeight: 600, background: "#f3f4f6", borderTop: "1px solid #e5e7eb" }}
               >
                 {grupo.header}
               </div>
+
               <ul className="list">
                 {grupo.items.map((p) => {
                   const canOpenPlacar = !!p.time_a_id && !!p.time_b_id;
-                  const idaPendente = p.is_mata_mata && camp?.ida_volta === true && p.perna === 2 && (() => {
-                    const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
-                    return ida && !ida.encerrada;
-                  })();
+                  const idaPendente =
+                    p.is_mata_mata &&
+                    camp?.ida_volta === true &&
+                    p.perna === 2 &&
+                    (() => {
+                      const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
+                      return ida && !ida.encerrada;
+                    })();
+
                   return (
                     <li key={p.id} className="list__item">
                       {/* Esquerda: times/placar e sub-infos */}
@@ -545,41 +524,38 @@ export default function CampeonatoPartidas() {
 
                         <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
                           <div className="list__subtitle" style={{ marginTop: 4 }}>
-                          {!isNarrow && (
-                            <>
-                              {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
-                              {p.local ? ` · ${p.local}` : ""}
-                            </>
-                          )}
-                        </div>
-                          {p.is_mata_mata && (
-                          <div className="text-muted" style={{ fontSize: 12 }}>
-                            {camp?.ida_volta === true && p.perna === 2 && (() => {
-                              const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
-                              if (!ida) return null;
-                              // calcular agregado no ORDEM DA TELA (time A à esquerda, time B à direita)
-                              const idaLeft = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
-                              const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
-                              const somaLeft = idaLeft + (p.gols_time_a || 0);
-                              const somaRight = idaRight + (p.gols_time_b || 0);
-                              return <>Agregado: {somaLeft}-{somaRight}</>;
-                            })()}
-                            {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) && (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
-                              <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                            {!isNarrow && (
+                              <>
+                                {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
+                                {p.local ? ` · ${p.local}` : ""}
+                              </>
                             )}
                           </div>
-                        )}
-                        </div>
 
-                        {/* Seção Editar Partida */}
+                          {p.is_mata_mata && (
+                            <div className="text-muted" style={{ fontSize: 12 }}>
+                              {camp?.ida_volta === true && p.perna === 2 && (() => {
+                                const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
+                                if (!ida) return null;
+                                // agregado respeitando a ordem visual (A à esquerda, B à direita)
+                                const idaLeft  = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
+                                const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
+                                const somaLeft  = idaLeft  + (p.gols_time_a || 0);
+                                const somaRight = idaRight + (p.gols_time_b || 0);
+                                return <>Agregado: {somaLeft}-{somaRight}</>;
+                              })()}
+                              {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
+                                (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
+                                <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                              )}
+                            </div>
+                          )}
+                        </div>
 
                         {/* Edição inline */}
                         {editandoId === p.id && (
                           <div className="card" style={{ marginTop: 10 }}>
-                            <div
-                              className="row"
-                              style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}
-                            >
+                            <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
                               <div className="collapsible__title">Editar Partida</div>
                             </div>
                             <div style={{ padding: 12 }}>
@@ -590,9 +566,7 @@ export default function CampeonatoPartidas() {
                                     className="input"
                                     type="text"
                                     value={formEdicao.local}
-                                    onChange={(e) =>
-                                      setFormEdicao((f) => ({ ...f, local: e.target.value }))
-                                    }
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, local: e.target.value }))}
                                   />
                                 </div>
                                 <div className="field">
@@ -601,89 +575,65 @@ export default function CampeonatoPartidas() {
                                     className="input"
                                     type="datetime-local"
                                     value={formEdicao.dataHora}
-                                    onChange={(e) =>
-                                      setFormEdicao((f) => ({ ...f, dataHora: e.target.value }))
-                                    }
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, dataHora: e.target.value }))}
                                   />
                                 </div>
                                 <div className="field">
-                                  <label className="label">Gols {p.time_a?.abreviacao || p.time_a?.nome || "Time A"}</label>
+                                  <label className="label">Gols (Time A)</label>
                                   <input
-                                    className="input"
+                                    className="input mono"
                                     type="number"
-                                    min={0}
+                                    min="0"
                                     value={formEdicao.gols_time_a}
-                                    onChange={(e) =>
-                                      setFormEdicao((f) => ({ ...f, gols_time_a: e.target.value }))
-                                    }
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_a: e.target.value }))}
                                   />
                                 </div>
                                 <div className="field">
-                                  <label className="label">Gols {p.time_b?.abreviacao || p.time_b?.nome || "Time B"}</label>
+                                  <label className="label">Gols (Time B)</label>
                                   <input
-                                    className="input"
+                                    className="input mono"
                                     type="number"
-                                    min={0}
+                                    min="0"
                                     value={formEdicao.gols_time_b}
-                                    onChange={(e) =>
-                                      setFormEdicao((f) => ({ ...f, gols_time_b: e.target.value }))
-                                    }
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_b: e.target.value }))}
                                   />
                                 </div>
 
-                                {/* Pênaltis apenas para mata-mata */}
-                                {p.is_mata_mata && ((camp?.ida_volta === false) || p.perna === 2 || p.perna == null) && (
-                                  <div className="grid grid-2" style={{ marginTop: 8 }}>
-                                    <div className="field">
-                                      <label className="label">
-                                        Pênaltis — {p.time_a?.abreviacao || p.time_a?.nome || "Time A"} (opcional)
-                                      </label>
-                                      <input
-                                        className="input"
-                                        type="number"
-                                        min={0}
-                                        value={formEdicao.penaltis_time_a ?? ""}
-                                        onChange={(e) =>
-                                          setFormEdicao((f) => ({
-                                            ...f,
-                                            penaltis_time_a: e.target.value === "" ? "" : e.target.value,
-                                          }))
-                                        }
-                                      />
-                                    </div>
-                                    <div className="field">
-                                      <label className="label">
-                                        Pênaltis — {p.time_b?.abreviacao || p.time_b?.nome || "Time B"} (opcional)
-                                      </label>
-                                      <input
-                                        className="input"
-                                        type="number"
-                                        min={0}
-                                        value={formEdicao.penaltis_time_b ?? ""}
-                                        onChange={(e) =>
-                                          setFormEdicao((f) => ({
-                                            ...f,
-                                            penaltis_time_b: e.target.value === "" ? "" : e.target.value,
-                                          }))
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-
+                                {/* Pênaltis (habilita conforme regras) */}
+                                <div className="field">
+                                  <label className="label">Pênaltis (Time A)</label>
+                                  <input
+                                    className="input mono"
+                                    type="number"
+                                    min="0"
+                                    value={formEdicao.penaltis_time_a}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_a: e.target.value }))}
+                                  />
+                                </div>
+                                <div className="field">
+                                  <label className="label">Pênaltis (Time B)</label>
+                                  <input
+                                    className="input mono"
+                                    type="number"
+                                    min="0"
+                                    value={formEdicao.penaltis_time_b}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_b: e.target.value }))}
+                                  />
+                                </div>
                               </div>
-                              {erroForm && (
-                                <div style={{ color: "#b91c1c", marginTop: 8 }}>{erroForm}</div>
-                              )}
-                              <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                                <button className="btn btn--primary" onClick={salvarEdicao}>
-                                  Salvar (encerra)
-                                </button>
-                                <button className="btn btn--muted" onClick={cancelarEdicao}>
-                                  Cancelar
-                                </button>
-                                <button className="btn btn--red" onClick={() => reiniciarPartida(p.id)}>
-                                  Reiniciar partida
+
+                              {erroForm && <div className="text-danger" style={{ marginTop: 8 }}>{erroForm}</div>}
+
+                              <div className="row" style={{ gap: 8, marginTop: 12 }}>
+                                <button className="btn btn--orange" onClick={salvarEdicao}>Salvar</button>
+                                <button className="btn btn--muted" onClick={cancelarEdicao}>Cancelar</button>
+                                <button
+                                  className="btn btn--red"
+                                  onClick={() => reiniciarPartida(p.id)}
+                                  title="Zerar gols e pênaltis desta partida"
+                                  style={{ marginLeft: "auto" }}
+                                >
+                                  Reiniciar
                                 </button>
                               </div>
                             </div>
@@ -721,12 +671,9 @@ export default function CampeonatoPartidas() {
                           ]}
                         />
                       </div>
-
                     </li>
-                    
                   );
                 })}
-                
               </ul>
             </div>
           ))

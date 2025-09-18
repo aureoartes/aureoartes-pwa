@@ -1,29 +1,41 @@
+// v1.1.0 — Autenticação Supabase + RLS (ownerId) — 2025-09-15
 import { useEffect, useState } from "react";
-import { NavLink, Link, useNavigate } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 import logo from "../assets/logo_aureoartes.png";
-import { isLogged, clearUsuario } from "../config/appUser";
+import { supabase } from "@/lib/supabaseClient";            // ← novo (nomeado)
 
 export default function Navbar() {
+  // Sessão Supabase (auth real)
+  const [session, setSession] = useState(null);
+  const authed = !!session?.user;
+
+  // UI state
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const navigate = useNavigate();
-  const logged = isLogged();
 
-  const isDesktop = () => window.innerWidth >= 992;
-  const [showDesktop, setShowDesktop] = useState(isDesktop());
-
+  // Boot + listener de sessão
   useEffect(() => {
-    const onResize = () => setShowDesktop(isDesktop());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess || null));
+    return () => sub?.subscription?.unsubscribe?.();
   }, []);
-    
+
+  // Scroll e responsividade
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  const isDesktop = () => window.innerWidth >= 992;
+  const [showDesktop, setShowDesktop] = useState(isDesktop());
+  useEffect(() => {
+    const onResize = () => setShowDesktop(isDesktop());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Estilos
   const baseLinkStyle = {
     padding: "8px 12px",
     borderRadius: 10,
@@ -31,8 +43,8 @@ export default function Navbar() {
     textDecoration: "none",
     fontWeight: 600,
     transition: "background 160ms, color 160ms, box-shadow 160ms",
+    whiteSpace: "nowrap",
   };
-
   const activeLinkStyle = {
     ...baseLinkStyle,
     background: "rgba(255,255,255,0.22)",
@@ -40,49 +52,6 @@ export default function Navbar() {
     boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
   };
 
-  const placarBtnStyle = {
-    padding: "10px 14px",
-    borderRadius: 12,
-    background: "#fff",
-    color: "#d95500",
-    fontWeight: 800,
-    textDecoration: "none",
-    boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-  };
-
-  const placarBtnActive = {
-    ...placarBtnStyle,
-    outline: "2px solid rgba(255,255,255,0.6)",
-  };
-
-  const containerStyle = {
-    position: "sticky",
-    top: 0,
-    zIndex: 50,
-    transition: "all 300ms",
-    background: scrolled
-      ? "rgba(255,102,0,0.82)"
-      : "linear-gradient(90deg, #ff6a00, #ff7e2d)",
-    backdropFilter: scrolled ? "blur(6px)" : "none",
-    boxShadow: scrolled ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
-  };
-
-  const navInner = { maxWidth: 1120, margin: "0 auto", padding: "0 16px" };
-  const row = { height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" };
-  const brand = { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" };
-  const brandText = { color: "#fff", fontWeight: 800, letterSpacing: "0.6px", fontSize: 18 };
-  const mobileToggle = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "rgba(255,255,255,0.92)",
-    background: "transparent",
-    border: "none",
-    padding: 8,
-    borderRadius: 10,
-    cursor: "pointer",
-  };
-  const mobileMenu = { paddingBottom: 10, display: open ? "block" : "none", animation: "fadeIn 120ms ease-out" };
   const lojaBtnStyle = {
     marginLeft: 8,
     display: "inline-flex",
@@ -95,51 +64,73 @@ export default function Navbar() {
     borderRadius: 12,
     boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
     textDecoration: "none",
+    whiteSpace: "nowrap",
   };
 
-  const handleLogout = () => {
-    clearUsuario();
-    navigate("/", { replace: true });
+  const containerStyle = {
+    position: "sticky",
+    top: 0,
+    zIndex: 50,
+    transition: "all 300ms",
+    background: scrolled ? "rgba(255,102,0,0.82)" : "linear-gradient(90deg, #ff6a00, #ff7e2d)",
+    backdropFilter: scrolled ? "blur(6px)" : "none",
+    boxShadow: scrolled ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
   };
+  const navInner = { maxWidth: 1120, margin: "0 auto", padding: "0 16px" };
+  const row = { height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 };
+  const brand = { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" };
+  const brandText = { color: "#fff", fontWeight: 800, letterSpacing: "0.6px", fontSize: 18, whiteSpace: "nowrap" };
+  const mobileToggle = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "rgba(255,255,255,0.92)",
+    background: "transparent",
+    border: "none",
+    padding: 8,
+    borderRadius: 10,
+    cursor: "pointer",
+  };
+  const mobileMenu = { paddingBottom: 10, display: open ? "block" : "none", animation: "fadeIn 120ms ease-out" };
+
+  // Link helpers
+  const LinkStd = (props) => (
+    <NavLink {...props} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)} />
+  );
 
   return (
     <header style={containerStyle}>
       <nav style={navInner}>
         <div style={row}>
-          <Link to="/" style={brand}>
+          {/* Brand */}
+          <Link to="/" style={brand} aria-label="Ir para a Home">
             <img
               src={logo}
               alt="AUREOARTES"
-              style={{
-                height: 40,
-                width: 40,
-                objectFit: "contain",
-                borderRadius: 12,
-                background: "rgba(255,255,255,0.95)",
-                padding: 6,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
-              }}
+              style={{ height: 40, width: 40, objectFit: "contain", borderRadius: 12, background: "rgba(255,255,255,0.95)", padding: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}
             />
             <span style={brandText}>AUREOARTES</span>
           </Link>
 
+          {/* Desktop */}
           {showDesktop ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <NavLink to="/" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Home</NavLink>
-              <NavLink to="/placar" style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}>Placar</NavLink>
-              <NavLink to="/times" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Times</NavLink>
-              <NavLink to="/campeonatos" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Campeonatos</NavLink>
+              <LinkStd to="/">Home</LinkStd>
+              {/* Placar igual aos demais */}
+              <LinkStd to="/placar">Placar</LinkStd>
+              {/* Ocultar Times/Campeonatos se NÃO autenticado */}
+              {authed && <LinkStd to="/times">Times</LinkStd>}
+              {authed && <LinkStd to="/campeonatos">Campeonatos</LinkStd>}
               <a href="https://www.aureoartes.com.br/" target="_blank" rel="noopener noreferrer" style={lojaBtnStyle}>Loja</a>
-              {!logged ? (
-                <Link to="/login" style={{ ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 700 }}>Entrar</Link>
+              {/* Botão Entrar vira Perfil quando autenticado */}
+              {!authed ? (
+                <LinkStd to="/login">Entrar</LinkStd>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <NavLink to="/perfil" style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Perfil</NavLink>
-                  <button onClick={handleLogout} className="btn btn--muted" style={{ padding: "6px 10px" }}>Sair</button>
-                </div>
+                <LinkStd to="/perfil">Perfil</LinkStd>
               )}
             </div>
           ) : (
+            // Mobile hamburger
             <button aria-label="Abrir menu" onClick={() => setOpen((v) => !v)} style={mobileToggle}>
               {open ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -154,21 +145,19 @@ export default function Navbar() {
           )}
         </div>
 
+        {/* Mobile menu */}
         {!showDesktop && (
           <div style={mobileMenu}>
             <div style={{ display: "grid", gap: 6 }}>
-              <NavLink to="/" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Home</NavLink>
-              <NavLink to="/placar" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? placarBtnActive : placarBtnStyle)}>Placar</NavLink>
-              <NavLink to="/times" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Times</NavLink>
-              <NavLink to="/campeonatos" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Campeonatos</NavLink>
+              <LinkStd to="/" onClick={() => setOpen(false)}>Home</LinkStd>
+              <LinkStd to="/placar" onClick={() => setOpen(false)}>Placar</LinkStd>
+              {authed && <LinkStd to="/times" onClick={() => setOpen(false)}>Times</LinkStd>}
+              {authed && <LinkStd to="/campeonatos" onClick={() => setOpen(false)}>Campeonatos</LinkStd>}
               <a href="https://www.aureoartes.com.br/" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)} style={{ ...lojaBtnStyle, display: "block", marginTop: 6, textAlign: "center" }}>Loja</a>
-              {!logged ? (
-                <Link to="/login" onClick={() => setOpen(false)} style={{ ...baseLinkStyle, background: "rgba(255,255,255,0.14)", fontWeight: 700 }}>Entrar</Link>
+              {!authed ? (
+                <LinkStd to="/login" onClick={() => setOpen(false)}>Entrar</LinkStd>
               ) : (
-                <>
-                  <NavLink to="/perfil" onClick={() => setOpen(false)} style={({ isActive }) => (isActive ? activeLinkStyle : baseLinkStyle)}>Perfil</NavLink>
-                  <button onClick={() => { setOpen(false); handleLogout(); }} className="btn btn--muted" style={{ padding: "6px 10px" }}>Sair</button>
-                </>
+                <LinkStd to="/perfil" onClick={() => setOpen(false)}>Perfil</LinkStd>
               )}
             </div>
           </div>

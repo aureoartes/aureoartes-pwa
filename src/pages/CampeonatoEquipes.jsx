@@ -1,11 +1,9 @@
-// src/pages/CampeonatoEquipes.jsx — listas invertidas + filtro por região + TeamIcon padrão
+// v1.1.0 — Campeonato > Equipes — Autenticação Supabase + RLS (ownerId)
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";         // <- named export
 import TeamIcon from "../components/TeamIcon";
-import { getUsuarioId } from "../config/appUser";
-
-const USUARIO_ID = getUsuarioId();
+import { useAuth } from "@/auth/AuthProvider"; // se não usar alias "@", troque para "../auth/AuthProvider"
 
 function normalizeHexColor(c, fallback = "#e0e0e0") {
   if (!c || typeof c !== "string") return fallback;
@@ -16,6 +14,7 @@ function normalizeHexColor(c, fallback = "#e0e0e0") {
 }
 
 export default function CampeonatoEquipes() {
+  const { ownerId, loading: authLoading } = useAuth();   // ← novo: dono logado
   const { id: campeonatoId } = useParams();
   const navigate = useNavigate();
 
@@ -25,65 +24,117 @@ export default function CampeonatoEquipes() {
   const [timesUsuario, setTimesUsuario] = useState([]);
   const [selecionados, setSelecionados] = useState([]);
   const [regioes, setRegioes] = useState([]);
+  const regiaoMap = useMemo(
+    () => Object.fromEntries((regioes || []).map(r => [r.id, r.descricao])),
+    [regioes]
+  );
+  const nomeRegiao = (id) => regiaoMap[id] || "—";
   const [regiaoFiltroId, setRegiaoFiltroId] = useState("");
+
+  const [categorias, setCategorias] = useState([]);
+
+  const categoriaMap = useMemo(
+    () => Object.fromEntries((categorias || []).map(c => [c.id, c.descricao])),
+    [categorias]
+  );
+  const nomeCategoria = (id, legadoTexto) => categoriaMap[id] || legadoTexto || "—";
 
   const [temPartidas, setTemPartidas] = useState(false);
   const [todasPartidasEncerradas, setTodasPartidasEncerradas] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;          // espera resolver auth
+    if (!ownerId) {                   // sem usuário => limpa e mostra “vazio”
+      setCampeonato(null);
+      setTimesUsuario([]);
+      setSelecionados([]);
+      setRegioes([]);
+      setTemPartidas(false);
+      setTodasPartidasEncerradas(false);
+      setLoading(false);
+      return;
+    }
     (async () => {
       setLoading(true);
       await Promise.all([
-        carregarCampeonato(),
-        carregarTimesUsuario(),
+        carregarCampeonato(ownerId),
+        carregarTimesUsuario(ownerId),
         carregarSelecionados(),
-        carregarRegioes(),
+        carregarRegioes(ownerId),
+        carregarCategorias(), 
       ]);
       await checarEstadoPartidas();
       setLoading(false);
     })();
-  }, [campeonatoId]);
+  }, [authLoading, ownerId, campeonatoId]);
 
-  async function carregarCampeonato() {
-    const { data } = await supabase
+  async function carregarCampeonato(owner) {
+    // Segurança extra: garante que o campeonato pertence ao dono atual
+    const { data, error } = await supabase
       .from("campeonatos")
       .select("*")
       .eq("id", campeonatoId)
+      .eq("usuario_id", owner)
       .single();
+    if (error) {
+      setCampeonato(null);
+      return;
+    }
     setCampeonato(data || null);
   }
 
-  async function carregarTimesUsuario() {
-    const { data } = await supabase
+  async function carregarTimesUsuario(owner) {
+    const { data, error } = await supabase
       .from("times")
       .select("*")
-      .eq("usuario_id", USUARIO_ID)
+      .eq("usuario_id", owner)
       .order("nome", { ascending: true });
+    if (error) {
+      setTimesUsuario([]);
+      return;
+    }
     setTimesUsuario(data || []);
   }
 
   async function carregarSelecionados() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("campeonato_times")
-      .select(`
+      .select(
+        `
         id,
         time_id,
         grupo,
-        time:time_id (
-          id, nome, abreviacao, cor1, cor2, cor_detalhe, categoria, regiao_id
-        )
-      `)
+        time:time_id ( id, nome, abreviacao, cor1, cor2, cor_detalhe, categoria_id, regiao_id )
+      `
+      )
       .eq("campeonato_id", campeonatoId);
+    if (error) {
+      setSelecionados([]);
+      return;
+    }
     setSelecionados(data || []);
   }
 
-  async function carregarRegioes() {
-    const { data } = await supabase
+  async function carregarRegioes(owner) {
+    const { data, error } = await supabase
       .from("regioes")
       .select("id, descricao")
-      .eq("usuario_id", USUARIO_ID)
+      .eq("usuario_id", owner)
       .order("descricao", { ascending: true });
+    if (error) {
+      setRegioes([]);
+      return;
+    }
     setRegioes(data || []);
+  }
+
+  async function carregarCategorias() {
+    const { data, error } = await supabase
+      .from("categorias")
+      .select("id, descricao")
+      .order("descricao", { ascending: true });
+    if (error) { setCategorias([]); return; }
+    setCategorias(data || []);
   }
 
   async function checarEstadoPartidas() {
@@ -122,6 +173,7 @@ export default function CampeonatoEquipes() {
     !!campeonato && selecionados.length === (campeonato.numero_equipes || 0);
 
   async function adicionarTime(time) {
+    if (!ownerId) return; // segurança
     if (capacidadeAtingida) {
       alert("Limite de equipes atingido para este campeonato.");
       return;
@@ -171,11 +223,11 @@ export default function CampeonatoEquipes() {
     setTodasPartidasEncerradas(false);
   }
 
-  // Distribui grupos por sorteio (Fisher–Yates) e balanceamento quociente+resto
+  // Distribui grupos por sorteio (Fisher–Yates) e balanceia quociente+resto
   async function distribuirGruposPorSorteio() {
     if (!campeonato) return;
     const formato = (campeonato.formato || "").toLowerCase();
-    if (formato !== "grupos") return; // nada a fazer
+    if (formato !== "grupos") return;
 
     const nGrupos = Number(campeonato.numero_grupos || 0);
     if (!nGrupos || nGrupos < 1) {
@@ -183,7 +235,6 @@ export default function CampeonatoEquipes() {
     }
 
     const arr = [...(selecionados || [])];
-    // Embaralhar (Fisher–Yates)
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -191,7 +242,7 @@ export default function CampeonatoEquipes() {
 
     const total = arr.length;
     const base = Math.floor(total / nGrupos);
-    const resto = total % nGrupos; // grupos 1..resto recebem +1
+    const resto = total % nGrupos;
 
     let idx = 0;
     const updates = [];
@@ -209,7 +260,6 @@ export default function CampeonatoEquipes() {
           supabase.from("campeonato_times").update({ grupo: u.grupo }).eq("id", u.id)
         )
       );
-      // refletir em memória
       setSelecionados((prev) =>
         prev.map((s) => {
           const u = updates.find((x) => x.id === s.id);
@@ -224,10 +274,8 @@ export default function CampeonatoEquipes() {
       alert("Selecione exatamente o número de equipes configurado para o campeonato.");
       return;
     }
-
     const formato = (campeonato?.formato || "").toLowerCase();
 
-    // Se grupos, travar se numero_grupos inválido e distribuir antes da RPC
     if (formato === "grupos") {
       const nGrupos = Number(campeonato?.numero_grupos || 0);
       if (!nGrupos || nGrupos < 1) {
@@ -236,13 +284,12 @@ export default function CampeonatoEquipes() {
       }
       try {
         await distribuirGruposPorSorteio();
-      } catch (e) {
+      } catch {
         alert("Não foi possível distribuir os grupos. Verifique a configuração e tente novamente.");
         return;
       }
     }
 
-    // Sempre limpar partidas: p_limpar_abertas = true
     const { error } = await supabase.rpc("generate_partidas", {
       p_campeonato_id: campeonatoId,
       p_limpar_abertas: true,
@@ -260,11 +307,17 @@ export default function CampeonatoEquipes() {
     }
   }
 
-
   const isMataMata = (campeonato?.formato || "") === "mata_mata";
   const showVerTabela = !isMataMata && temPartidas;
   const showVerPartidas = isMataMata && temPartidas;
 
+  if (authLoading) {
+    return (
+      <div className="container">
+        <div className="card"><div>Carregando autenticação…</div></div>
+      </div>
+    );
+  }
   if (loading) {
     return (
       <div className="container">
@@ -307,13 +360,12 @@ export default function CampeonatoEquipes() {
         )}
       </div>
 
-      {/* Duas colunas (INVERTIDAS): esquerda = Times do campeonato / direita = Meus times */}
+      {/* Duas colunas (INVERTIDAS): esquerda = Meus times / direita = Times do campeonato */}
       <div className="grid grid-2">
         {/* Coluna ESQUERDA: Meus times (disponíveis, NÃO vinculados) */}
         <div className="card" style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>Meus times</h3>
-            {/* Filtro de região */}
             <div className="row" style={{ gap: 8 }}>
               <label className="label" style={{ margin: 0 }}>Região:</label>
               <select
@@ -339,7 +391,6 @@ export default function CampeonatoEquipes() {
               disponiveisFiltrados.map((t) => (
                 <li key={t.id} className="list__item">
                   <div className="list__left">
-                    {/* TeamIcon com cores do time */}
                     <TeamIcon
                       team={{
                         cor1: normalizeHexColor(t.cor1),
@@ -353,7 +404,7 @@ export default function CampeonatoEquipes() {
                     <div>
                       <div className="list__title">{t.nome}</div>
                       <div className="list__subtitle">
-                        {t.abreviacao || "—"} · {t.categoria || "—"}
+                        {t.abreviacao || "—"} · {t.categoria || "—"} · {nomeCategoria(t.categoria_id, t.categoria)} · {nomeRegiao(t.regiao_id)}
                       </div>
                     </div>
                   </div>
@@ -377,7 +428,7 @@ export default function CampeonatoEquipes() {
           )}
         </div>
 
-        {/* Coluna ESQUERDA: Selecionados */}
+        {/* Coluna DIREITA: Selecionados */}
         <div className="card" style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ marginTop: 0 }}>Times do campeonato ({selecionados.length}/{campeonato?.numero_equipes || 0})</h3>
@@ -385,11 +436,13 @@ export default function CampeonatoEquipes() {
               <button
                 className="btn btn--primary"
                 onClick={gerarPartidas}
-                disabled={!podeGerarPartidas}
+                disabled={!podeGerarPartidas || temPartidas}
                 title={
-                  podeGerarPartidas
-                    ? "Gerar partidas no banco"
-                    : "Habilita quando o número de equipes selecionadas for igual ao configurado"
+                  temPartidas
+                    ? "Já existem partidas geradas para este campeonato"
+                    : !podeGerarPartidas
+                      ? "Habilita quando o número de equipes selecionadas for igual ao configurado"
+                      : "Gerar partidas no banco"
                 }
               >
                 Gerar partidas
@@ -421,15 +474,19 @@ export default function CampeonatoEquipes() {
                       <div>
                         <div className="list__title">{s.time?.nome || "Time"}</div>
                         <div className="list__subtitle">
-                          {s.time?.abreviacao || "—"} · {s.time?.categoria || "—"}
+                          {s.time?.abreviacao || "—"} · {s.time?.categoria || "—"} · {nomeCategoria(s.time?.categoria_id, s.time?.categoria)} · {nomeRegiao(s.time?.regiao_id)}
                         </div>
                       </div>
                     </div>
                     <button
                       className="btn btn--red"
                       onClick={() => removerTime(s.id)}
-                      disabled={todasPartidasEncerradas}
-                      title={todasPartidasEncerradas ? "Todas as partidas estão encerradas" : "Remover time do campeonato"}
+                      disabled={temPartidas}
+                      title={
+                        temPartidas
+                          ? "Este campeonato já possui partidas geradas. Remoções desabilitadas."
+                          : "Remover time do campeonato"
+                      }
                     >
                       Remover
                     </button>
