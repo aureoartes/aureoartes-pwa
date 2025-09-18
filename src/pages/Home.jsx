@@ -123,6 +123,17 @@ export default function Home() {
           </div>
         </section>
       )}
+      {/* Rodapé discreto */}
+        <div
+          role="contentinfo"
+          className="mt-auto w-full flex justify-center items-center py-3 text-xs"
+          style={{ fontSize: 11, color: "var(--muted)" }}
+        >
+          <span className="text-center">
+            © {new Date().getFullYear()} AureoArtes. Todos os direitos reservados.
+            <span className="ml-2">Versão {import.meta.env.VITE_APP_VERSION || "1.1.0"}</span>
+          </span>
+        </div>
     </div>
   );
 }

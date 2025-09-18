@@ -263,12 +263,9 @@ export default function Times() {
 
       {/* Cadastro/edição (oculto por padrão) */}
       {abrirCadastro && (
-        <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card p-4">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
-            <button className="btn btn--muted" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
-              Fechar
-            </button>
           </div>
 
           <div style={{ padding: 12 }}>
@@ -340,7 +337,7 @@ export default function Times() {
                     {quickAddOpen && (
                       <QuickAddInline
                         label="Nova região"
-                        placeholder="Ex.: Zona Norte"
+                        placeholder="Ex.: Suldeste"
                         align="left"
                         onCreate={(descricao) => createRegiao(descricao)}
                         onClose={() => setQuickAddOpen(false)}

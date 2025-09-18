@@ -1,0 +1,81 @@
+{
+  "meta": {
+    "project": "AureoArtes PWA",
+    "repoUrl": "https://github.com/aureoartes/aureoartes-pwa",
+    "siteUrl": "https://app.aureoartes.com.br",
+    "updatedAt": "2025-09-18"
+  },
+  "versions": [
+    {
+      "version": "v2.0.0",
+      "status": "Planned",
+      "date": null,
+      "highlights": [
+        "Seleção de layouts do placar",
+        "Service Worker offline para placar e assets principais",
+        "Tela de gerência do campeonato (botão Gerenciar substitui Equipes/Excluir)",
+        "Compartilhar placar de partida encerrada",
+        "Adicionar convidados para campeonato",
+        "Definir botonista por time + alerta quando dois times do mesmo botonista se enfrentam (apenas futebol de botão)",
+        "Registro de eventos no placar",
+        "Perfis de cores (temas)",
+        "Traduções: espanhol e inglês",
+        "Pesquisa de endereço via API",
+        "Autenticação pelo Google (Supabase Auth OAuth)",
+        "Implantação dos planos com integração de check-out"
+      ],
+      "notes": [],
+      "links": []
+    },
+    {
+      "version": "v1.2.0",
+      "status": "Unreleased",
+      "date": null,
+      "highlights": [
+        "TimeDetalhes: guia Partidas (Últimas 5 / Próximas 5)",
+        "Home: StoreBanner dinâmico (JSON externo)",
+        "Placar: layout mobile horizontal",
+        "Preview ao vivo de cores no formulário de Time",
+        "Screen Wake Lock no placar",
+        "Instalar app (beforeinstallprompt) + banner iOS (Safari)",
+        "Fluxo de convite",
+        "Link mágico exibido somente após erro de senha",
+        "Home: exibir última partida encerrada (se houver)"
+      ],
+      "notes": [
+        "Sem breaking changes previstos"
+      ],
+      "links": []
+    },
+    {
+      "version": "v1.1.0",
+      "status": "Released",
+      "date": "2025-09-18",
+      "highlights": [
+        "Ajustes finos de UI/UX em Campeonatos, Partidas e Placar",
+        "Otimizações de listagem e navegação em mobile",
+        "Correções de navegação no React Router"
+      ],
+      "notes": [
+        "Itens originalmente planejados para 1.1 foram movidos para 1.2"
+      ],
+      "links": [
+        {
+          "label": "Produção",
+          "href": "https://app.aureoartes.com.br"
+        }
+      ]
+    },
+    {
+      "version": "v1.0.0",
+      "status": "Released",
+      "date": null,
+      "highlights": [
+        "MVP: cadastro de times/jogadores, campeonatos e placar básico",
+        "Supabase integrado; deploy PWA (Vercel)"
+      ],
+      "notes": [],
+      "links": []
+    }
+  ]
+}

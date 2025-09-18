@@ -404,7 +404,7 @@ export default function CampeonatoEquipes() {
                     <div>
                       <div className="list__title">{t.nome}</div>
                       <div className="list__subtitle">
-                        {t.abreviacao || "—"} · {t.categoria || "—"} · {nomeCategoria(t.categoria_id, t.categoria)} · {nomeRegiao(t.regiao_id)}
+                        {t.abreviacao || "—"} · {nomeCategoria(t.categoria_id, t.categoria)} · {nomeRegiao(t.regiao_id)}
                       </div>
                     </div>
                   </div>
@@ -474,7 +474,7 @@ export default function CampeonatoEquipes() {
                       <div>
                         <div className="list__title">{s.time?.nome || "Time"}</div>
                         <div className="list__subtitle">
-                          {s.time?.abreviacao || "—"} · {s.time?.categoria || "—"} · {nomeCategoria(s.time?.categoria_id, s.time?.categoria)} · {nomeRegiao(s.time?.regiao_id)}
+                          {s.time?.abreviacao || "—"} · {nomeCategoria(s.time?.categoria_id, s.time?.categoria)} · {nomeRegiao(s.time?.regiao_id)}
                         </div>
                       </div>
                     </div>

@@ -23,6 +23,7 @@ import CampeonatoChaveamento from "./pages/CampeonatoChaveamento";
 import Perfil from "./pages/Perfil";
 import Campeonatos from "./pages/Campeonatos";
 import AtualizaUsuario from "./pages/AtualizaUsuario";
+import ChangelogPage from "./pages/ChangelogPage";
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/entrar" element={<SignIn />} />
           <Route path="/signup" element={<Signup />} /> 
           <Route path="/atualiza-usuario" element={<AtualizaUsuario />} />
+          <Route path="/changelog" element={<ChangelogPage />} />
 
           {/* Rotas protegidas (grupo) */}
           <Route element={<ProtectedRoute />}>

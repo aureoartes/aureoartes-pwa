@@ -1,4 +1,4 @@
-// Perfil.jsx — v1.1.20 (seções separadas: Identidade / Guias)
+// Perfil.jsx — v1.1.1.22 (mensagens estilizadas via theme.css)
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -120,38 +120,298 @@ const TABS = [
 ];
 
 function TabBar({ active, onChange }) {
+  const [canLeft, setCanLeft] = React.useState(false);
+  const [canRight, setCanRight] = React.useState(false);
+  const scrollerRef = React.useRef(null);
+
+  const updateArrows = React.useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanLeft(scrollLeft > 2);
+    setCanRight(scrollLeft + clientWidth < scrollWidth - 2);
+  }, []);
+
+  React.useEffect(() => {
+    updateArrows();
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateArrows, { passive: true });
+    const ro = new ResizeObserver(updateArrows);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateArrows);
+      ro.disconnect();
+    };
+  }, [updateArrows]);
+
+  function scrollBy(delta) {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  }
+
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 6,
-        borderBottom: "1px solid var(--line)",
-        background: "#fffdfa",
-        padding: "8px 8px 0",
-        borderRadius: "12px 12px 0 0",
-      }}
-    >
-      {TABS.map((t) => (
-        <button
-          key={t.key}
-          className="btn btn--muted"
-          onClick={() => onChange(t.key)}
+    <div style={{ position: "relative" }}>
+      {/* scroller */}
+      <div
+        ref={scrollerRef}
+        style={{
+          display: "flex",
+          gap: 6,
+          borderBottom: "1px solid var(--line)",
+          background: "#fffdfa",
+          padding: "8px 8px 0",
+          borderRadius: "12px 12px 0 0",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          flexWrap: "nowrap",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}
+        onWheel={(e) => {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }
+        }}
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className="btn btn--muted"
+            onClick={() => onChange(t.key)}
+            style={{
+              background: "transparent",
+              borderRadius: 0,
+              border: 0,
+              boxShadow: "none",
+              padding: "10px 12px",
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              flex: "0 0 auto",
+              borderBottom:
+                active === t.key
+                  ? "3px solid var(--brand)"
+                  : "3px solid transparent",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* fade indicators */}
+      {canLeft && (
+        <div
+          aria-hidden
           style={{
-            background: "transparent",
-            borderRadius: 0,
-            border: 0,
-            boxShadow: "none",
-            padding: "10px 12px",
-            fontWeight: 700,
-            borderBottom:
-              active === t.key
-                ? "3px solid var(--brand)"
-                : "3px solid transparent",
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 1,
+            width: 24,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(90deg, rgba(255,253,250,1) 20%, rgba(255,253,250,0) 100%)",
+            borderRadius: "12px 0 0 0",
+          }}
+        />
+      )}
+      {canRight && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 1,
+            width: 24,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(270deg, rgba(255,253,250,1) 20%, rgba(255,253,250,0) 100%)",
+            borderRadius: "0 12px 0 0",
+          }}
+        />
+      )}
+
+      {/* chevrons (desktop/tablet) */}
+      {canLeft && (
+        <button
+          type="button"
+          className="btn btn--muted"
+          onClick={() => scrollBy(-160)}
+          aria-label="Rolar guias para a esquerda"
+          style={{
+            position: "absolute",
+            left: 2,
+            top: 6,
+            bottom: 6,
+            padding: "0 6px",
+            borderRadius: 8,
+            opacity: 0.9,
           }}
         >
-          {t.label}
+          ‹
         </button>
-      ))}
+      )}
+      {canRight && (
+        <button
+          type="button"
+          className="btn btn--muted"
+          onClick={() => scrollBy(160)}
+          aria-label="Rolar guias para a direita"
+          style={{
+            position: "absolute",
+            right: 2,
+            top: 6,
+            bottom: 6,
+            padding: "0 6px",
+            borderRadius: 8,
+            opacity: 0.9,
+          }}
+        >
+          ›
+        </button>
+      )}
+    </div>
+  );
+
+  useEffect(() => {
+    updateArrows();
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateArrows, { passive: true });
+    const ro = new ResizeObserver(updateArrows);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateArrows);
+      ro.disconnect();
+    };
+  }, [updateArrows]);
+
+  function scrollBy(delta) {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        ref={scrollerRef}
+        style={{
+          display: "flex",
+          gap: 6,
+          borderBottom: "1px solid var(--line)",
+          background: "#fffdfa",
+          padding: "8px 8px 0",
+          borderRadius: "12px 12px 0 0",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          flexWrap: "nowrap",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}
+        onWheel={(e) => {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }
+        }}
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className="btn btn--muted"
+            onClick={() => onChange(t.key)}
+            style={{
+              background: "transparent",
+              borderRadius: 0,
+              border: 0,
+              boxShadow: "none",
+              padding: "10px 12px",
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              flex: "0 0 auto",
+              borderBottom:
+                active === t.key
+                  ? "3px solid var(--brand)"
+                  : "3px solid transparent",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {canLeft && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 1,
+            width: 24,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(90deg, rgba(255,253,250,1) 20%, rgba(255,253,250,0) 100%)",
+            borderRadius: "12px 0 0 0",
+          }}
+        />
+      )}
+      {canRight && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 1,
+            width: 24,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(270deg, rgba(255,253,250,1) 20%, rgba(255,253,250,0) 100%)",
+            borderRadius: "0 12px 0 0",
+          }}
+        />
+      )}
+      {canLeft && (
+        <button
+          type="button"
+          className="btn btn--muted"
+          onClick={() => scrollBy(-160)}
+          aria-label="Rolar guias para a esquerda"
+          style={{
+            position: "absolute",
+            left: 2,
+            top: 6,
+            bottom: 6,
+            padding: "0 6px",
+            borderRadius: 8,
+            opacity: 0.9,
+          }}
+        >
+          ‹
+        </button>
+      )}
+      {canRight && (
+        <button
+          type="button"
+          className="btn btn--muted"
+          onClick={() => scrollBy(160)}
+          aria-label="Rolar guias para a direita"
+          style={{
+            position: "absolute",
+            right: 2,
+            top: 6,
+            bottom: 6,
+            padding: "0 6px",
+            borderRadius: 8,
+            opacity: 0.9,
+          }}
+        >
+          ›
+        </button>
+      )}
     </div>
   );
 }
@@ -478,7 +738,7 @@ export default function Perfil() {
                     className="input"
                     type="email"
                     value={form.email}
-                    onChange={(e) => setField("email", e.target.value)}
+                    disabled //onChange={(e) => setField("email", e.target.value)}
                   />
                 </div>
               </div>
@@ -542,6 +802,7 @@ export default function Perfil() {
                       <select
                         className="input"
                         value={form.idioma}
+                        disabled
                         onChange={(e) => setField("idioma", e.target.value)}
                       >
                         <option value="pt-BR">Português (Brasil)</option>
@@ -551,9 +812,10 @@ export default function Perfil() {
                     </div>
                     <div className="field">
                       <label className="label">Paleta do tema</label>
-                      <select
+                      <select 
                         className="input"
                         value={form.paleta_tema}
+                        disabled
                         onChange={(e) =>
                           setField("paleta_tema", e.target.value)
                         }
@@ -841,7 +1103,7 @@ export default function Perfil() {
                       price="Grátis"
                       features={[
                         "Até 50 times",
-                        "Até 10 campeonatos",
+                        "Até 5 campeonatos",
                         "Sem custo mensal"
                       ]}
                       ctaLabel="Assinar Geraldino"
@@ -856,8 +1118,8 @@ export default function Perfil() {
                       price="R$ 14,90"
                       priceSuffix="/mês"
                       features={[
-                        "XX Times",
-                        "XX Campeonatos",
+                        "200 Times",
+                        "30 Campeonatos",
                         "Sem anúncios"
                       ]}
                       ctaLabel="Assinar R$ 14,90"
@@ -872,7 +1134,7 @@ export default function Perfil() {
                       price="R$ 34,90"
                       priceSuffix="/mês"
                       features={[
-                        "XXX Times",
+                        "1.000 Times",
                         "Sem anúncios",
                         "5% de desconto em todo o site"
                       ]}

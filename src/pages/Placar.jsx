@@ -370,7 +370,7 @@ export default function Placar() {
   };
 
   // Debug logs (defina false para silenciar durante testes)
-  const DEBUG = true;
+  const DEBUG = false;
   // ===== Helpers de agregado (mata-mata ida/volta) =====
   function placarAgregado() {
     // Volta sem ida: agregado é o placar atual

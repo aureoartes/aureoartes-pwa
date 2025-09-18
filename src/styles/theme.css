@@ -60,6 +60,15 @@ a:hover { text-decoration: none; opacity: .95; }
 }
 
 .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+/* ações sempre em linha no desktop */
+.row-actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:nowrap;          /* impede quebra no desktop */
+  white-space:nowrap;        /* evita quebra do texto dentro do botão */
+}
 
 /* Cards / superfícies */
 .card {
@@ -88,6 +97,18 @@ p{ margin: 0; }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
 @media (max-width: 640px){
   .btn { padding: 8px 10px; font-size: 14px; }
+}
+/* só no mobile estreito os botões “descem” */
+@media (max-width:420px){
+  .row-grid{
+    grid-template-columns:min-content minmax(0,1fr);
+  }
+  .row-actions{
+    grid-column:1 / -1;
+    justify-self:stretch;
+    flex-wrap:wrap;          /* permite quebra no mobile */
+  }
+  .row-actions .btn{ width:100%; }
 }
 
 /* Inputs / selects / textarea */
