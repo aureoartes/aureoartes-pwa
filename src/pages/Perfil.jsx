@@ -1,4 +1,5 @@
-// Perfil.jsx — v1.1.1.22 (mensagens estilizadas via theme.css)
+// Perfil.jsx — v1.2.0.0 (mensagens estilizadas via theme.css)
+// v1.2.0.0 (mensagens estilizadas via theme.css)
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -462,6 +463,27 @@ export default function Perfil() {
   // enum origem_aquisicao -> consumindo do hook centralizado
   const origemEnum = useEnumValues("public.usuario_origem_aquisicao");
 
+  // abaixo dos outros useState:
+  const [toast, setToast] = useState({ text:"", kind:"success", top:null, left:null, show:false, leaving:false });
+
+  function showToast({ text, kind="success", anchorEl=null, center=false, ms=2600 }){
+    let pos = { top:null, left:null };
+    if (!center && anchorEl){
+      const r = anchorEl.getBoundingClientRect();
+      pos = {
+        top: r.top + window.scrollY - 12,                 // acima do botão
+        left: r.left + window.scrollX + r.width / 2       // centralizado no botão
+      };
+    }
+    setToast({ text, kind, ...pos, show:true, leaving:false });
+
+    // auto-hide
+    window.clearTimeout(showToast._t1);
+    window.clearTimeout(showToast._t2);
+    showToast._t1 = setTimeout(() => setToast(t => ({ ...t, leaving:true })), ms);
+    showToast._t2 = setTimeout(() => setToast({ text:"", kind:"success", top:null, left:null, show:false, leaving:false }), ms + 220);
+  }
+
   useEffect(() => {
     let sub;
     (async () => {
@@ -562,15 +584,11 @@ export default function Perfil() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  async function saveIdentidade() {
-    setError("");
-    setOkMsg("");
-    if (!requiredOk) {
-      setError("Preencha os campos obrigatórios corretamente.");
-      return;
-    }
+  async function saveIdentidade(anchorEl){
+    setError(""); setOkMsg("");
+    if (!requiredOk){ setError("Preencha os campos obrigatórios corretamente."); return; }
     setSaving(true);
-    try {
+    try{
       const payload = {
         nome: form.nome.trim(),
         email: form.email.trim().toLowerCase(),
@@ -584,19 +602,18 @@ export default function Perfil() {
         .eq("id", form.id)
         .eq("auth_uid", form.auth_uid);
       if (updErr) throw updErr;
-      setOkMsg("Identidade atualizada!");
+      showToast({ text:"Identidade atualizada!", kind:"success", anchorEl });
     } catch (err) {
-      setError(err?.message || "Não foi possível salvar identidade.");
+      showToast({ text: err?.message || "Não foi possível salvar identidade.", kind:"error", anchorEl });
     } finally {
       setSaving(false);
     }
   }
 
-  async function savePreferencias() {
+  async function savePreferencias(anchorEl){
     setSavingTab("preferencias");
-    setError("");
-    setOkMsg("");
-    try {
+    setError(""); setOkMsg("");
+    try{
       const payload = {
         idioma: form.idioma,
         paleta_tema: form.paleta_tema,
@@ -618,18 +635,23 @@ export default function Perfil() {
         .eq("id", form.id)
         .eq("auth_uid", form.auth_uid);
       if (updErr) throw updErr;
-      setOkMsg("Preferências salvas!");
-    } catch (err) {
-      setError(err?.message || "Não foi possível salvar preferências.");
-    } finally {
+
+      // toast de sucesso ancorado no botão
+      showToast({ text:"Preferências salvas!", kind:"success", center: true });
+    }catch(err){
+      showToast({ 
+        text: err?.message || "Não foi possível salvar preferências.", 
+        kind:"error", 
+        center: true   // força exibição no rodapé
+      });
+    }finally{
       setSavingTab("");
     }
   }
 
   async function saveEndereco() {
     setSavingTab("endereco");
-    setError("");
-    setOkMsg("");
+    setError(""); setOkMsg("");
     try {
       const payload = {
         cep: form.cep || null,
@@ -644,31 +666,34 @@ export default function Perfil() {
         .eq("id", form.id)
         .eq("auth_uid", form.auth_uid);
       if (updErr) throw updErr;
-      setOkMsg("Endereço salvo!");
+
+      showToast({ text: "Endereço salvo!", kind: "success", center: true });
     } catch (err) {
-      setError(err?.message || "Não foi possível salvar endereço.");
+      showToast({ text: err?.message || "Não foi possível salvar endereço.", kind: "error", center: true });
     } finally {
       setSavingTab("");
     }
   }
 
+
   async function saveSenha() {
     setSavingTab("seguranca");
-    setError("");
-    setOkMsg("");
+    setError(""); setOkMsg("");
     try {
       if (!pwd.nova || pwd.nova.length < 6)
         throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
       if (pwd.nova !== pwd.confirma)
         throw new Error("A confirmação não confere.");
+
       const { error: updErr } = await supabase.auth.updateUser({
         password: pwd.nova,
       });
       if (updErr) throw updErr;
-      setOkMsg("Senha atualizada!");
+
+      showToast({ text: "Senha atualizada!", kind: "success", center: true });
       setPwd({ atual: "", nova: "", confirma: "" });
     } catch (err) {
-      setError(err?.message || "Não foi possível atualizar a senha.");
+      showToast({ text: err?.message || "Não foi possível atualizar a senha.", kind: "error", center: true });
     } finally {
       setSavingTab("");
     }
@@ -676,10 +701,13 @@ export default function Perfil() {
 
   // Seleção/assinatura de plano (stub para integrar com checkout/Supabase)
   function handleChoosePlan(planKey) {
-    // TODO: integrar com sua lógica de checkout / atualização de usuarios.plano_id
-    // Ex.: abrir modal, redirecionar para /checkout?plano=..., ou chamar RPC
-    setOkMsg(`Beleza! Vamos seguir com o plano: ${planKey}. Em breve conecto ao checkout.`);
-    setError("");
+    try {
+      // TODO: integrar com checkout / atualizar usuarios.plano_id
+      // Ex.: abrir modal, redirecionar para /checkout?plano=..., ou chamar RPC
+      showToast({ text: `Plano selecionado: ${planKey}.`, kind: "success", center: true });
+    } catch (err) {
+      showToast({ text: err?.message || "Não foi possível selecionar o plano.", kind: "error", center: true });
+    }
   }
 
   async function handleCancel() {
@@ -771,7 +799,7 @@ export default function Perfil() {
                   <button
                     className="btn btn--primary"
                     disabled={saving || !requiredOk}
-                    onClick={saveIdentidade}
+                    onClick={(e) => saveIdentidade(e.currentTarget)}
                   >
                     {saving ? "Salvando…" : "Salvar identidade"}
                   </button>
@@ -961,7 +989,7 @@ export default function Perfil() {
                     <button
                       className="btn btn--primary"
                       disabled={savingTab === "preferencias"}
-                      onClick={savePreferencias}
+                      onClick={(e) => savePreferencias(e.currentTarget)}
                     >
                       {savingTab === "preferencias"
                         ? "Salvando…"
@@ -1153,18 +1181,37 @@ export default function Perfil() {
         {(error || okMsg) && (
           <div className="row" style={{ marginTop: 12 }}>
             {error && (
-              <div className="alert alert--error" role="alert">
-                {error}
+              <div className="message message--error" role="alert">
+                <span className="message__icon">⚠️</span>
+                <div className="message__content">{error}</div>
               </div>
             )}
             {okMsg && (
-              <div className="alert alert--success" role="status">
-                {okMsg}
+              <div className="message message--success" role="status">
+                <span className="message__icon">✓</span>
+                <div className="message__content">{okMsg}</div>
               </div>
             )}
           </div>
         )}
+
       </div>
+      {toast.show && (
+        <div
+          className={[
+            "toast",
+            `toast--${toast.kind}`,
+            (!toast.top && !toast.left) ? "toast--bottom-center" : "",
+            toast.leaving ? "is-leaving" : ""
+          ].join(" ")}
+          style={ (toast.top || toast.left) ? { top: toast.top, left: toast.left } : undefined }
+          role="status"
+          aria-live="polite"
+        >
+          {toast.kind === "success" ? "✓" : toast.kind === "error" ? "⚠️" : "ℹ️"} {toast.text}
+        </div>
+      )}
+
     </div>
   );
 }

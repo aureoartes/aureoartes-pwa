@@ -1,6 +1,5 @@
-/* =========================
-   AUREOARTES — THEME GLOBAL
-   ========================= */
+/* v:1.2.0.1 banner install app */
+/* v:1.2.0.0 ajustes na mensagem para sumir e aparecer próximo a ação */
 
 /* Fonte */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -11,6 +10,7 @@
   --brand: #FB8C00;
   --brand-600: #F57C00;
   --brand-700: #EF6C00;
+  --brand-orange: var(--brand, #FB8C00);
 
   --text: #1f2937;
   --muted: #6b7280;
@@ -616,4 +616,60 @@ html, body { overscroll-behavior-y: none; }
 .card + .text-center,
 .text-center + .card {
   margin-top: 12px; /* ou 16px se preferir mais respiro */
+}
+
+/* ===== Toasts (flutuantes, auto-hide) ===== */
+.toast{
+  position: fixed;
+  z-index: 1000;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-md);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: saturate(1.1);
+  transform: translate(-50%, -100%); /* âncora por padrão acima do botão */
+  animation: toast-in .18s ease-out both;
+}
+.toast--bottom-center{
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 0);    /* centralizada no rodapé */
+}
+.toast--success{ background:#ecfdf5; color:#065f46; border-color:#bbf7d0; }
+.toast--error{   background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+.toast--info{    background:#eff6ff; color:#1e40af; border-color:#bfdbfe; }
+.toast--warn{    background:#fffbeb; color:#92400e; border-color:#fcd34d; }
+
+@keyframes toast-in{
+  from{ opacity:0; transform: translate(-50%, -110%); }
+  to{   opacity:1; }
+}
+@keyframes toast-out{
+  to{ opacity:0; transform: translate(-50%, -120%); }
+}
+.toast.is-leaving{ animation: toast-out .18s ease-in forwards; }
+
+.install-banner, .ios-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--brand-orange);
+  color: white;
+  padding: 12px;
+  display: none;
+  text-align: center;
+  z-index: 9999;
+}
+.install-banner button {
+  background: white;
+  color: var(--brand-orange);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-left: 8px;
 }

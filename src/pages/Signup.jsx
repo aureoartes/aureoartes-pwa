@@ -65,7 +65,7 @@ export default function Signup() {
 
       // 3) Mensagem conforme política de confirmação
       if (!signData?.session) {
-        setMessage("Quase lá! Enviamos um e-mail para confirmação. Verifique sua caixa de entrada para ativar a conta.");
+        setMessage("Quase lá! Enviamos um e-mail para confirmação. Verifique sua caixa de entrada para ativar a conta. (Verifique caixa de spam!)");
       } else {
         navigate(from, { replace: true });
       }

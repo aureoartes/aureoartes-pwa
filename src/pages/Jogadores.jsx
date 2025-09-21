@@ -1,4 +1,4 @@
-// v1.1.2 — Jogadores — header invertido + limites de campos + opções de posição + remover "Fechar"
+// v1.2.0.0 Ajustar seção header 
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -146,8 +146,17 @@ export default function Jogadores() {
       alert("❌ Erro ao excluir jogador.");
       return;
     }
+
+    // Atualiza lista
     setJogadores((prev) => prev.filter((x) => x.id !== id));
+
+    // Fecha form se estiver aberto
+    resetForm();
+    setAbrirCadastro(false);
+
+    alert("✅ Jogador excluído!");
   }
+
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -224,22 +233,39 @@ export default function Jogadores() {
     <div className="container">
       {/* Header: ESQUERDA = título/subtítulo; DIREITA = filtros/ordenacao + ações (igual Times) */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          {/* ESQUERDA: título */}
-          <div>
+        <div
+          className="row"
+          style={{
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* ESQUERDA: título/subtítulo */}
+          <div style={{ minWidth: 220, flex: "1 1 320px" }}>
             <h1 style={{ margin: 0 }}>Jogadores</h1>
             <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Cadastre, edite e gerencie jogadores. 
+              Cadastre, edite e gerencie jogadores.
             </div>
           </div>
 
-          <div className="row" style={{ gap: 8}}>
+          {/* DIREITA: controles empilhados (como em Times.jsx) */}
+          <div
+            className="col"
+            style={{
+              minWidth: 260,
+              maxWidth: 360,
+              flex: "0 1 360px",
+              gap: 8,
+            }}
+          >
             <label className="label" style={{ margin: 0 }}>Ordenar:</label>
             <select
               className="select"
               value={ordenacao}
               onChange={(e) => setOrdenacao(e.target.value)}
-              style={{ minWidth: 100, maxWidth: 250 }}
+              style={{ width: "100%" }}
             >
               <option value="nome">Nome</option>
               <option value="apelido">Apelido</option>
@@ -248,12 +274,12 @@ export default function Jogadores() {
               <option value="posicao">Posição</option>
             </select>
 
-            <label className="label" style={{ marginLeft: 8 }}>Time:</label>
+            <label className="label" style={{ marginTop: 8 }}>Time:</label>
             <select
               className="select"
               value={timeFiltroId}
               onChange={(e) => setTimeFiltroId(e.target.value)}
-              style={{ minWidth: 100, maxWidth: 250 }}
+              style={{ width: "100%" }}
             >
               <option value="">Todos</option>
               <option value={SEM_EQUIPE}>Sem equipe</option>
@@ -262,8 +288,10 @@ export default function Jogadores() {
               ))}
             </select>
 
-            <button className="btn btn--orange" onClick={startNovo}>+ Novo Jogador</button>
-            <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn btn--orange" onClick={startNovo}>+ Novo Jogador</button>
+              <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -352,14 +380,39 @@ export default function Jogadores() {
                 </div>
               </div>
 
-              <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn btn--orange" type="submit" disabled={saving}>
-                  {editandoId ? "Salvar Alterações" : "Salvar Jogador"}
-                </button>
-                <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
-                  Cancelar
-                </button>
+              <div
+                className="row"
+                style={{ justifyContent: "space-between", alignItems: "center", marginTop: 12 }}
+              >
+                {/* Esquerda: Salvar + Cancelar */}
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn btn--orange" type="submit" disabled={saving}>
+                    {editandoId ? "Salvar Alterações" : "Salvar Jogador"}
+                  </button>
+                  <button
+                    className="btn btn--muted"
+                    type="button"
+                    onClick={() => {
+                      resetForm();
+                      setAbrirCadastro(false);
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                {/* Direita: Excluir (somente ao editar) */}
+                {editandoId && (
+                  <button
+                    className="btn btn--red"
+                    type="button"
+                    onClick={() => handleDelete(editandoId)}
+                  >
+                    Excluir
+                  </button>
+                )}
               </div>
+
             </form>
           </div>
         </div>
@@ -405,13 +458,11 @@ export default function Jogadores() {
                         setOpenMenuId={setOpenMenuId}
                         actions={[
                           { label: "Editar", variant: "muted", onClick: () => startEditar(j) },
-                          { label: "Excluir", variant: "red", onClick: () => handleDelete(j.id) },
                         ]}
                       />
                     ) : (
                       <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn--muted" onClick={() => startEditar(j)}>Editar</button>
-                        <button className="btn btn--red" onClick={() => handleDelete(j.id)}>Excluir</button>
                       </div>
                     )}
                   </div>

@@ -1,7 +1,7 @@
 {
   "name": "appAureoArtes",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,11 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
+    "supabase": "^2.40.7",
     "vite": "^7.1.3"
+  },
+  "supabase": {
+    "devRef": "oodzzvwjcpcogekpooav",
+    "prodRef": "hxlssbdtskdzsbskoqwt"
   }
 }

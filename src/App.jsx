@@ -9,6 +9,7 @@ import Signup from "./pages/Signup";
 
 // UI
 import Navbar from "./components/Navbar";
+import InstallPrompt from "./components/InstallPrompt"; // 👈 NOVO
 
 // Páginas (mantidas)
 import Home from "./pages/Home";
@@ -62,6 +63,9 @@ export default function App() {
             <Route path="/perfil" element={<Perfil />} />
           </Route>
         </Routes>
+
+        {/* 👇 aparece em todas as telas; respeita theme.css */}
+        <InstallPrompt />
       </AuthProvider>
     </>
   );

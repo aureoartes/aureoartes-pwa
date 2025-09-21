@@ -1,5 +1,7 @@
-// SignIn.jsx — layout final com espaçamento consistente entre cards e labels
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// SignIn.jsx — v1.2.0
+// Alterações: exibir o 1º "ou" + card Link Mágico somente após erro de senha inválida
+
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -8,6 +10,9 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+
+  // Novo: controla exibição do 1º "ou" + link mágico após erro de senha
+  const [showRecovery, setShowRecovery] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,7 +56,11 @@ export default function SignIn() {
 
   async function handlePasswordSignIn(e) {
     e.preventDefault();
-    setLoading(true); setMessage(null); routedRef.current = false;
+    setLoading(true);
+    setMessage(null);
+    setShowRecovery(false); // reseta a dica a cada tentativa
+    routedRef.current = false;
+
     try {
       const { error, data } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
@@ -60,17 +69,21 @@ export default function SignIn() {
       if (error) throw error;
       await routeAfterAuth(data.session, from);
     } catch (err) {
-      setMessage(
-        err?.message?.includes("Invalid")
-          ? "Credenciais inválidas. Confira e-mail e senha."
-          : err?.message || "Não foi possível entrar."
-      );
-    } finally { setLoading(false); }
+      const errMsg = err?.message || "Não foi possível entrar.";
+      const isInvalid = /invalid/i.test(errMsg);
+      setMessage(isInvalid ? "Credenciais inválidas. Confira e-mail e senha." : errMsg);
+
+      // Se a senha estiver errada, habilita o 1º "ou" e o card de link mágico
+      if (isInvalid) setShowRecovery(true);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleMagicLink(e) {
     e.preventDefault();
-    setLoading(true); setMessage(null);
+    setLoading(true);
+    setMessage(null);
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim().toLowerCase(),
@@ -80,7 +93,9 @@ export default function SignIn() {
       setMessage("Enviamos um link mágico para seu e-mail.");
     } catch (err) {
       setMessage(err?.message || "Não foi possível enviar o link mágico.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -134,10 +149,11 @@ export default function SignIn() {
             </div>
 
             {message && (
-              <div className="message message--error mt-3" role="alert">
+              <div className={`message ${/inválidas|inválida|invalid/i.test(message) ? "message--error" : "message--error"} mt-3`} role="alert">
                 <div className="message__content">{message}</div>
               </div>
             )}
+
             <div className="flex justify-center mt-4">
               <button disabled={loading} className="btn btn--primary min-w-[200px]">
                 {loading ? "Entrando…" : "Entrar com senha"}
@@ -145,22 +161,26 @@ export default function SignIn() {
             </div>
           </form>
 
-          {/* Separador */}
-          <div className="text-center text-muted small flex justify-center">ou</div>
+          {/* 1º Separador: só exibir após erro de senha */}
+          {showRecovery && (
+            <div className="text-center text-muted small flex justify-center">ou</div>
+          )}
 
-          {/* Card: link mágico */}
-          <form className="card p-4" onSubmit={handleMagicLink}>
-            <div className="flex justify-center">
-              <button disabled={loading || !email} className="btn btn--muted min-w-[200px]">
-                Enviar link mágico
-              </button>
-            </div>
-            <p className="small text-muted mt-2 flex justify-center">
-              Enviaremos um e-mail com o link para entrar.
-            </p>
-          </form>
+          {/* Card: link mágico — só exibe após erro de senha */}
+          {showRecovery && (
+            <form className="card p-4" onSubmit={handleMagicLink}>
+              <div className="flex justify-center">
+                <button disabled={loading || !email} className="btn btn--muted min-w-[200px]">
+                  Enviar link mágico
+                </button>
+              </div>
+              <p className="small text-muted mt-2 flex justify-center">
+                Enviaremos um e-mail com o link para entrar.
+              </p>
+            </form>
+          )}
 
-          {/* Separador */}
+          {/* 2º Separador: permanece visível sempre */}
           <div className="text-center text-muted small flex justify-center">ou</div>
 
           {/* Card: cadastro */}

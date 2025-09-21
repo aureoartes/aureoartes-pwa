@@ -1,4 +1,5 @@
-// v1.1.10 — Campeonatos — join categorias + form com select de categorias (FK) + regra Tabela×Partidas + redireciona para Equipes ao criar
+// v1.2.0.3 — Campeonatos
+// Header alinhado ao padrão de Jogadores.jsx; ações ajustadas; botões Partidas/Chaves/Tabela conforme regras
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,10 +18,15 @@ export default function Campeonatos() {
   const formRef = useRef(null);
   const { ownerId, loading: authLoading } = useAuth();
 
+  // Dados
   const [lista, setLista] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ordenacao, setOrdenacao] = useState("alfabetica");
+
+  // Conjuntos para habilitar botões por tipo de partidas
   const [campIdsComPartidas, setCampIdsComPartidas] = useState(new Set());
+  const [campIdsMataMata, setCampIdsMataMata] = useState(new Set());
+  const [campIdsLiga, setCampIdsLiga] = useState(new Set());
 
   // ====== Form (criação/edição) ======
   const [abrirCadastro, setAbrirCadastro] = useState(false);
@@ -57,6 +63,8 @@ export default function Campeonatos() {
     if (!ownerId) {
       setLista([]);
       setCampIdsComPartidas(new Set());
+      setCampIdsMataMata(new Set());
+      setCampIdsLiga(new Set());
       setLoading(false);
       return;
     }
@@ -79,6 +87,8 @@ export default function Campeonatos() {
       if (error) {
         setLista([]);
         setCampIdsComPartidas(new Set());
+        setCampIdsMataMata(new Set());
+        setCampIdsLiga(new Set());
         setLoading(false);
         return;
       }
@@ -89,11 +99,16 @@ export default function Campeonatos() {
       if (ids.length) {
         const { data: ps } = await supabase
           .from("partidas")
-          .select("campeonato_id")
+          .select("campeonato_id, is_mata_mata")
           .in("campeonato_id", ids);
-        setCampIdsComPartidas(new Set((ps || []).map((p) => p.campeonato_id)));
+        const all = ps || [];
+        setCampIdsComPartidas(new Set(all.map((p) => p.campeonato_id)));
+        setCampIdsMataMata(new Set(all.filter(p => p.is_mata_mata === true).map(p => p.campeonato_id)));
+        setCampIdsLiga(new Set(all.filter(p => !p.is_mata_mata).map(p => p.campeonato_id)));
       } else {
         setCampIdsComPartidas(new Set());
+        setCampIdsMataMata(new Set());
+        setCampIdsLiga(new Set());
       }
       setLoading(false);
     })();
@@ -111,6 +126,8 @@ export default function Campeonatos() {
   }, [lista, ordenacao]);
 
   const hasPartidas = (campId) => campIdsComPartidas.has(campId);
+  const hasMataMata = (campId) => campIdsMataMata.has(campId);
+  const hasLiga = (campId) => campIdsLiga.has(campId);
 
   function resetForm() {
     setEditando(null);
@@ -200,7 +217,7 @@ export default function Campeonatos() {
     }
   }
   
-  //salvar edição
+  // salvar edição
   async function salvarEdicao() {
     if (!editando?.id) return;
 
@@ -251,10 +268,23 @@ export default function Campeonatos() {
     alert("✅ Campeonato atualizado!");
   }
 
-  async function excluir(c) {
-    if (!confirm(`Excluir campeonato "${c.nome}"?`)) return;
-    await supabase.from("campeonatos").delete().eq("id", c.id);
-    setLista((prev) => prev.filter((x) => x.id !== c.id));
+  function abrirEquipesAtual() {
+    if (!editando?.id) return;
+    navigate(`/campeonatos/${editando.id}/equipes`);
+  }
+
+  async function excluirAtual() {
+    if (!editando?.id) return;
+    if (!confirm(`Excluir campeonato "${editando.nome}"?`)) return;
+    const { error } = await supabase.from("campeonatos").delete().eq("id", editando.id);
+    if (error) {
+      alert("❌ Erro ao excluir campeonato.");
+      return;
+    }
+    setLista(prev => prev.filter(x => x.id !== editando.id));
+    setAbrirCadastro(false);
+    setEditando(null);
+    alert("✅ Campeonato excluído!");
   }
 
   // ====== Estados ======
@@ -271,20 +301,51 @@ export default function Campeonatos() {
 
   return (
     <div className="container">
+      {/* Header ajustado ao padrão Jogadores.jsx */}
       <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div>
+        <div
+          className="row"
+          style={{
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* ESQUERDA: título/subtítulo */}
+          <div style={{ minWidth: 220, flex: "1 1 320px" }}>
             <h1 style={{ margin: 0 }}>Campeonatos</h1>
-            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>Crie, edite e gerencie seus campeonatos.</div>
+            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Crie, edite e gerencie seus campeonatos.
+            </div>
           </div>
-          <div className="row" style={{ gap: 8 }}>
+
+          {/* DIREITA: controles empilhados */}
+          <div
+            className="col"
+            style={{ minWidth: 260, maxWidth: 360, flex: "0 1 360px", gap: 8 }}
+          >
             <label className="label" style={{ margin: 0 }}>Ordenar:</label>
-            <select className="select" value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <select
+              className="select"
+              value={ordenacao}
+              onChange={(e) => setOrdenacao(e.target.value)}
+              style={{ width: "100%" }}
+            >
               <option value="alfabetica">Ordem alfabética</option>
               <option value="mais_recente">Mais recente</option>
               <option value="mais_antigo">Mais antigo</option>
             </select>
-            <button className="btn btn--orange" onClick={() => { resetForm(); setAbrirCadastro(true); setTimeout(()=>formRef.current?.scrollIntoView({behavior:"smooth"}),0); }}>+ Novo Campeonato</button>
+
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <button
+                className="btn btn--orange"
+                onClick={() => { resetForm(); setAbrirCadastro(true); setTimeout(()=>formRef.current?.scrollIntoView({behavior:"smooth"}),0); }}
+              >
+                + Novo Campeonato
+              </button>
+              <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -394,19 +455,29 @@ export default function Campeonatos() {
             )}
           </div>
 
-          <div className="row" style={{ gap: 8, marginTop: 12 }}>
-            <button
-              className="btn btn--orange"
-              onClick={editando ? salvarEdicao : salvarNovo}
-            >
-              {editando ? "Salvar alterações" : "Salvar Campeonato"}
-            </button>
-            <button
-              className="btn btn--muted"
-              onClick={() => { setAbrirCadastro(false); setEditando(null); }}
-            >
-              Cancelar
-            </button>
+          {/* Ações do formulário: esquerda = salvar/cancelar; direita = Equipes + Excluir (apenas ao editar) */}
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="btn btn--orange"
+                onClick={editando ? salvarEdicao : salvarNovo}
+              >
+                {editando ? "Salvar alterações" : "Salvar Campeonato"}
+              </button>
+              <button
+                className="btn btn--muted"
+                onClick={() => { setAbrirCadastro(false); setEditando(null); }}
+              >
+                Cancelar
+              </button>
+            </div>
+
+            {editando && (
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn btn--primary" onClick={abrirEquipesAtual}>Equipes</button>
+                <button className="btn btn--red" onClick={excluirAtual}>Excluir</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -430,15 +501,24 @@ export default function Campeonatos() {
                 {/* Desktop actions */}
                 {!isMobile && (
                   <div className="list__right" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {c.formato !== "mata_mata" && (
-                      <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${c.id}/classificacao`)} disabled={!hasPartidas(c.id)} aria-label="Abrir Tabela">Tabela</button>
+                    {/* Partidas sempre que houver quaisquer partidas */}
+                    <button
+                      className="btn btn--muted"
+                      onClick={() => navigate(`/campeonatos/${c.id}/partidas`)}
+                      disabled={!hasPartidas(c.id)}
+                    >
+                      Partidas
+                    </button>
+
+                    {/* Destaques por tipo de partidas existentes */}
+                    {hasMataMata(c.id) && (
+                      <button className="btn btn--orange" onClick={() => navigate(`/campeonatos/${c.id}/chaveamento`)}>Chaves</button>
                     )}
-                    {c.formato === "mata_mata" && (
-                      <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${c.id}/partidas`)} disabled={!hasPartidas(c.id)} aria-label="Abrir Partidas">Partidas</button>
+                    {hasLiga(c.id) && (
+                      <button className="btn btn--orange" onClick={() => navigate(`/campeonatos/${c.id}/classificacao`)}>Tabela</button>
                     )}
-                    <button className="btn btn--primary" onClick={() => navigate(`/campeonatos/${c.id}/equipes`)}>Equipes</button>
+
                     <button className="btn btn--muted" onClick={() => abrirEditar(c)}>Editar</button>
-                    <button className="btn btn--red" onClick={() => excluir(c)}>Excluir</button>
                   </div>
                 )}
                 {/* Mobile actions */}
@@ -449,15 +529,10 @@ export default function Campeonatos() {
                       openMenuId={openMenuId}
                       setOpenMenuId={setOpenMenuId}
                       actions={[
-                        { label: "Equipes", className: "btn btn--primary", onClick: () => navigate(`/campeonatos/${c.id}/equipes`) },
-                        ...(c.formato !== "mata_mata"
-                          ? [{ label: "Tabela", className: "btn btn--muted", onClick: () => navigate(`/campeonatos/${c.id}/classificacao`), disabled: !hasPartidas(c.id) }]
-                          : []),
-                        ...(c.formato === "mata_mata"
-                          ? [{ label: "Partidas", className: "btn btn--muted", onClick: () => navigate(`/campeonatos/${c.id}/partidas`), disabled: !hasPartidas(c.id) }]
-                          : []),
-                        { label: "Editar", className: "btn btn--muted", onClick: () => abrirEditar(c) },
-                        { label: "Excluir", className: "btn btn--red", onClick: () => excluir(c) }
+                        { label: "Partidas", className: "btn btn--muted", onClick: () => navigate(`/campeonatos/${c.id}/partidas`), disabled: !hasPartidas(c.id) },
+                        ...(hasMataMata(c.id) ? [{ label: "Chaves", className: "btn btn--orange", onClick: () => navigate(`/campeonatos/${c.id}/chaveamento`) }] : []),
+                        ...(hasLiga(c.id) ? [{ label: "Tabela", className: "btn btn--orange", onClick: () => navigate(`/campeonatos/${c.id}/classificacao`) }] : []),
+                        { label: "Editar", className: "btn btn--muted", onClick: () => abrirEditar(c) }
                       ]}
                     />
 
