@@ -1,33 +1,101 @@
 {
-  "latest": "v1.2.0",
-  "versions": {
-    "v1.2.0": {
-      "date": "2025-09-20",
-      "items": [
+  "meta": {
+    "project": "AureoArtes PWA",
+    "repoUrl": "https://github.com/aureoartes/aureoartes-pwa",
+    "siteUrl": "https://app.aureoartes.com.br",
+    "updatedAt": "2025-09-21"
+  },
+  "versions": [
+    {
+      "version": "v2.0.0",
+      "status": "Planned",
+      "date": null,
+      "highlights": [
+        "Tela de gerência do campeonato (botão Gerenciar substitui Equipes/Excluir)",
+        "Agrupamento de campeonatos por temporadas",
+        "Gerenciamento de campeonatos: clonar",
+        "Ranking geral e por temporadas",
+        "Adicionar convidados para campeonato",
+        "Definir botonista por time + alerta quando dois times do mesmo botonista se enfrentam (apenas futebol de botão)",
+        "Seleção de layouts do placar",
+        "Registro de eventos no placar",
+        "Placar: efeitos sonoros (apito e gol) e efeitos visuais no gol",
+        "Compartilhar placar de partida encerrada",
+        "Service Worker offline para placar e assets principais",
+        "Perfis de cores (temas)",
+        "Traduções: espanhol e inglês",
+        "Pesquisa de endereço via API",
+        "Autenticação pelo Google (Supabase Auth OAuth)",
+        "Implantação dos planos com integração de check-out"
+      ]
+    },
+    {
+      "version": "v1.2.1",
+      "status": "Unreleased",
+      "date": "2025-09-26",
+      "highlights": [
+        "TimeDetalhes: guia Partidas (Últimas 5 / Próximas 5)",
+        "Home: StoreBanner dinâmico (JSON externo)",
+        "Placar: layout mobile horizontal",
+        "Preview ao vivo de cores no formulário de Time",
+        "Screen Wake Lock no placar",
+        "Instalar app (beforeinstallprompt) + banner iOS (Safari)",
+        "Fluxo de convite",
+        "Chaveamento: botão Voltar deve ir para tela anterior (não especificamente para Partidas)",
+        "Chaveamento: incluir botão Partidas (antes do Voltar)",
+        "Chaveamento: header formatado como padrão da plataforma",
+        "Classificação: incluir botão Chaveamento (laranja) se houver partidas de mata-mata",
+        "CampeonatoEquipes: ajustar responsividade no mobile"
+      ]
+    },
+    {
+      "version": "v1.2.0",
+      "status": "Released",
+      "date": "2025-09-21",
+      "highlights": [
+        "Correções — Times: corrigido bug que impedia exclusão de times",
+        "Correções — Times: corrigido bug no salvamento de cor durante edição de times",
+        "Refinamentos de UI/UX — Campeonatos: header ajustado para seguir padrão da plataforma (mesmo estilo de Jogadores/Times)",
+        "Refinamentos de UI/UX — Campeonatos: botões Equipes e Excluir removidos da lista; agora aparecem apenas na seção de edição",
+        "Refinamentos de UI/UX — Campeonatos: na lista, botão Partidas exibido sempre que houver partidas",
+        "Refinamentos de UI/UX — Campeonatos: botão Chaves (laranja) se houver partidas de mata-mata (linka para /chaveamento)",
+        "Refinamentos de UI/UX — Campeonatos: botão Tabela (laranja) se houver partidas que não são mata-mata (linka para /classificacao)",
+        "Refinamentos — Chaveamento: botão Voltar agora retorna para a tela anterior (não mais fixo em Partidas)",
+        "Refinamentos — Chaveamento: incluído botão Partidas ao lado do botão Voltar",
+        "Refinamentos — Chaveamento: header formatado de acordo com o padrão visual da plataforma",
+        "Refinamentos — Classificação: incluído botão Chaveamento (laranja) quando houver partidas de mata-mata",
+        "Refinamentos — Jogadores: header padronizado (mesmo layout de Times: título/subtítulo à esquerda; filtros e ações empilhados à direita)",
+        "Refinamentos — Jogadores: botão Excluir removido da lista (desktop e mobile)",
+        "Refinamentos — Jogadores: botão Excluir (vermelho) reposicionado para dentro do formulário de edição, alinhado à direita; Salvar e Cancelar à esquerda",
+        "Refinamentos — Jogadores: após exclusão no formulário, fechar automaticamente a seção de cadastro/edição e atualizar a lista",
+        "Link mágico exibido somente após erro de senha",
+        "Home: exibir última partida encerrada (se houver)"
+      ]
+    },
+    {
+      "version": "v1.1.0",
+      "status": "Released",
+      "date": "2025-09-18",
+      "highlights": [
+        "Ajustes finos de UI/UX em Campeonatos, Partidas e Placar",
+        "Otimizações de listagem e navegação em mobile",
+        "Correções de navegação no React Router"
+      ],
+      "links": [
         {
-          "module": "Campeonatos",
-          "changes": [
-            "Header ajustado para seguir padrão da plataforma (mesmo estilo de Jogadores/Times).",
-            "Botões Equipes e Excluir removidos da lista; agora aparecem apenas na seção de edição.",
-            "Na lista, botão Partidas exibido sempre que houver partidas.",
-            "Exibição adicional: Chaves (laranja) se houver partidas de mata-mata; Tabela (laranja) se houver partidas que não são mata-mata."
-          ]
-        },
-        {
-          "module": "Chaveamento",
-          "changes": [
-            "Botão Voltar agora retorna para a tela anterior (não mais fixo em Partidas).",
-            "Incluído botão Partidas ao lado do botão Voltar.",
-            "Header formatado de acordo com o padrão visual da plataforma."
-          ]
-        },
-        {
-          "module": "Classificação",
-          "changes": [
-            "Incluído botão Chaveamento (laranja) quando houver partidas de mata-mata."
-          ]
+          "label": "Produção",
+          "href": "https://app.aureoartes.com.br"
         }
       ]
+    },
+    {
+      "version": "v1.0.0",
+      "status": "Released",
+      "date": "2025-09-04",
+      "highlights": [
+        "MVP: cadastro de times/jogadores, campeonatos e placar básico",
+        "Supabase integrado; deploy PWA (Vercel)"
+      ]
     }
-  }
+  ]
 }
