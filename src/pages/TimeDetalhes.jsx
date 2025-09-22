@@ -1,6 +1,6 @@
 // src/pages/TimeDetalhes.jsx
-// v1.1.1 — Auth Supabase + RLS (ownerId) e categoria via categoria_id
-import { useEffect, useMemo, useState } from "react";
+// v1.2.0.2 — Guia “Partidas” (Últimas 5 + Próximas 5) + Voltar com navigate(-1)
+import { useEffect, useMemo, useState, useRef, useLayoutEffect, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/auth/AuthProvider";
@@ -9,7 +9,7 @@ import ListaCompactaItem from "../components/ListaCompactaItem";
 import TeamIcon from "../components/TeamIcon";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
 
-// Hook de responsividade para mobile vertical
+// ==== Helpers reaproveitados (baseados em CampeonatoPartidas) ====
 function useIsNarrow(maxWidth = 520) {
   const [narrow, setNarrow] = useState(
     typeof window !== "undefined" ? window.matchMedia(`(max-width:${maxWidth}px)`).matches : false
@@ -26,6 +26,111 @@ function useIsNarrow(maxWidth = 520) {
   }, [maxWidth]);
   return narrow;
 }
+function timeLabel(p, side, isNarrow) {
+  const t = side === "a" ? p.time_a : p.time_b;
+  return isNarrow ? (t?.abreviacao || "—") : (t?.nome || "—");
+}
+function toLocalDateTimeLabel(ts, fallback = "Data a definir") {
+  if (!ts) return fallback;
+  try {
+    const d = new Date(ts);
+    const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${d.toLocaleDateString()} ${hm}`;
+  } catch {
+    return fallback;
+  }
+}
+
+function TabsHeader({ active, onChange, items }) {
+  const containerRef = useRef(null);
+  const scrollerRef = useRef(null);
+
+  const update = useCallback(() => {
+    const wrap = containerRef.current;
+    const el = scrollerRef.current;
+    if (!wrap || !el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    const canLeft  = scrollLeft > 2;
+    const canRight = scrollLeft + clientWidth < scrollWidth - 2;
+    if (canLeft)  wrap.setAttribute("data-can-left", "true"); else wrap.removeAttribute("data-can-left");
+    if (canRight) wrap.setAttribute("data-can-right","true"); else wrap.removeAttribute("data-can-right");
+  }, []);
+
+  useLayoutEffect(() => {
+    // cálculo inicial (antes de qualquer clique)
+    update();
+    const raf = requestAnimationFrame(update);
+    const t   = setTimeout(update, 0);
+
+    const el = scrollerRef.current;
+    if (!el) return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, [update, items.length]);
+
+  const scrollByDir = (dir) => {
+    const el = scrollerRef.current; if (!el) return;
+    const dx = Math.round((el.clientWidth || 320) * 0.8) * dir;
+    el.scrollBy({ left: dx, behavior: "smooth" });
+  };
+
+  return (
+    <div ref={containerRef} className="tabs tabs--scroll tabs--soft">
+      {/* setas ficam sempre no DOM; CSS mostra/esconde via [data-can-*] */}
+      <button
+        type="button"
+        className="btn btn--muted tabs__chevron tabs__chevron--left"
+        style={{ zIndex: 2 }}  
+        aria-label="Rolar abas para a esquerda"
+        onClick={() => scrollByDir(-1)}
+      >‹</button>
+
+      <div
+        ref={scrollerRef}
+        className="tabs__scroller"
+        role="tablist"
+        aria-label="Seções"
+        onWheel={(e) => { // rolagem vertical => horizontal
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
+        {items.map((it) => (
+          <button
+            key={it.key}
+            type="button"
+            role="tab"
+            className={`tabs__item ${active === it.key ? "is-active" : ""}`}
+            aria-selected={active === it.key}
+            onClick={() => { onChange(it.key); update(); }}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className="btn btn--muted tabs__chevron tabs__chevron--right"
+        style={{ zIndex: 2 }}  
+        aria-label="Rolar abas para a direita"
+        onClick={() => scrollByDir(+1)}
+      >›</button>
+    </div>
+  );
+}
 
 export default function TimeDetalhes() {
   const navigate = useNavigate();
@@ -40,6 +145,12 @@ export default function TimeDetalhes() {
   const [partidas, setPartidas] = useState([]);
   const [classificacao, setClassificacao] = useState([]);
   const [tab, setTab] = useState("estatisticas");
+  const TAB_ITEMS = [
+    { key: "estatisticas", label: "Estatísticas" },
+    { key: "campeonatos", label: "Campeonatos" },
+    { key: "partidas",     label: "Partidas" },
+    { key: "jogadores",    label: "Jogadores" },
+  ];
 
   // Carrega tudo quando tiver timeId e ownerId
   useEffect(() => {
@@ -97,7 +208,7 @@ export default function TimeDetalhes() {
   }
 
   async function fetchCampeonatosDoTime(owner, id) {
-    // vinculação time-campeonato
+    // 1) vínculos pelo time (sem filtrar por usuario_id aqui)
     const { data: vincs, error: ev } = await supabase
       .from("campeonato_times")
       .select("campeonato_id")
@@ -107,31 +218,40 @@ export default function TimeDetalhes() {
       setCampeonatos([]);
       return;
     }
-    const ids = (vincs || []).map((v) => v.campeonato_id);
-    if (ids.length === 0) {
-      setCampeonatos([]);
-      return;
-    }
+
+    const ids = (vincs || []).map((v) => v.campeonato_id).filter(Boolean);
+    if (!ids.length) { setCampeonatos([]); return; }
+
+    // 2) campeonatos do owner
     const { data, error } = await supabase
       .from("campeonatos")
-      .select("id, nome, categoria, formato, numero_equipes")
+      .select("id, nome, formato, numero_equipes, categorias:categoria_id ( id, descricao )")
       .in("id", ids)
       .eq("usuario_id", owner)
       .order("nome", { ascending: true });
-    if (error) {
-      console.error("fetchCampeonatosDoTime error", error);
-      setCampeonatos([]);
-      return;
-    }
+
+    if (error) { console.error("fetchCampeonatosDoTime error", error); setCampeonatos([]); return; }
     setCampeonatos(data || []);
   }
 
   async function fetchPartidasDoTime(owner, id) {
     const { data, error } = await supabase
       .from("partidas")
-      .select("id, campeonato_id, time_a_id, time_b_id, gols_time_a, gols_time_b, encerrada, data_hora")
+      .select(`
+        id, campeonato_id, time_a_id, time_b_id,
+        gols_time_a, gols_time_b,
+        penaltis_time_a, penaltis_time_b,
+        is_mata_mata,
+        encerrada, data_hora, "local",
+        campeonato:campeonato_id ( id, nome ),
+        time_a:time_a_id ( id, nome, abreviacao, cor1, cor2, cor_detalhe ),
+        time_b:time_b_id ( id, nome, abreviacao, cor1, cor2, cor_detalhe )
+      `)
       .eq("usuario_id", owner)
-      .or(`time_a_id.eq.${id},time_b_id.eq.${id}`);
+      .or(`time_a_id.eq.${id},time_b_id.eq.${id}`)
+      .order("data_hora", { ascending: false })
+      .order("id", { ascending: false });
+
     if (error) {
       console.error("fetchPartidasDoTime error", error);
       setPartidas([]);
@@ -196,7 +316,7 @@ export default function TimeDetalhes() {
   return (
     <div className="container">
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
-        <Link to="/times" className="btn btn--muted">← Voltar</Link>
+        <button type="button" className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
       </div>
 
       <div className="card team-card">
@@ -224,18 +344,33 @@ export default function TimeDetalhes() {
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "visible", marginTop: 12 }}>
-        <div role="tablist" style={{ display: "flex", borderBottom: "1px solid var(--line)", background: "#fffdfa" }}>
-          <TabButton active={tab === "estatisticas"} onClick={() => setTab("estatisticas")}>Estatísticas</TabButton>
-          <TabButton active={tab === "campeonatos"} onClick={() => setTab("campeonatos")}>Campeonatos</TabButton>
-          <TabButton active={tab === "jogadores"} onClick={() => setTab("jogadores")}>Jogadores</TabButton>
-        </div>
+        <TabsHeader active={tab} onChange={setTab} items={TAB_ITEMS} />
 
-        <div style={{ padding: 14 }}>
-          {tab === "estatisticas" && <EstatisticasBlock stats={stats} totalCampeonatos={campeonatos?.length || 0} totalJogadores={jogadores?.length || 0} />}
-          {tab === "campeonatos" && <CampeonatosBlock campeonatos={campeonatos} partidas={partidas} classificacao={classificacao} />}
+        <div className="tabs__panel">
+          {tab === "estatisticas" && (
+            <EstatisticasBlock
+              stats={stats}
+              totalCampeonatos={campeonatos?.length || 0}
+              totalJogadores={jogadores?.length || 0}
+            />
+          )}
+
+          {tab === "campeonatos" && (
+            <CampeonatosBlock
+              campeonatos={campeonatos}
+              partidas={partidas}
+              classificacao={classificacao}
+            />
+          )}
+
+          {tab === "partidas" && (
+            <PartidasBlock partidas={partidas} isOwnerTeamId={timeId} />
+          )}
+
           {tab === "jogadores" && <JogadoresBlock jogadores={jogadores} time={time} />}
         </div>
       </div>
+ 
     </div>
   );
 }
@@ -291,7 +426,6 @@ function EstatisticasBlock({ stats, totalCampeonatos, totalJogadores }) {
 function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
   const isNarrow = useIsNarrow(520);
   const [openMenuId, setOpenMenuId] = useState(null);
-  const guard = (enabled) => (e) => { if (!enabled) e.preventDefault(); };
 
   const header = (
     <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -314,30 +448,47 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
       {header}
       <ul className="list card">
         {campeonatos.map((c) => {
-          const temPartidas = partidas?.some((p) => p.campeonato_id === c.id);
-          const temClassificacao = classificacao?.some((cl) => cl.campeonato_id === c.id);
+          const partidasDoCamp = (partidas || []).filter((p) => p.campeonato_id === c.id);
+          const temPartidas = partidasDoCamp.length > 0;
+          const temKnockout = partidasDoCamp.some((p) => p.is_mata_mata === true);
+          const temNaoKnockout = partidasDoCamp.some((p) => p.is_mata_mata === false);
 
           const titulo = c.nome;
-          const subtitulo = [c.categoria || "—", c.formato || "—", c.numero_equipes ? `${c.numero_equipes} equipes` : null]
+          const subtitulo = [
+            c.categorias?.descricao || "—",
+            c.formato || "—",
+            c.numero_equipes ? `${c.numero_equipes} equipes` : null,
+          ]
             .filter(Boolean)
             .join(" • ");
 
-          const acoesWide = (
+          // Wide: renderiza somente os botões aplicáveis
+          const linksWide = (
             <>
-              <Link className="btn btn--sm btn--orange" to={`/campeonatos/${c.id}/partidas`} aria-disabled={!temPartidas} onClick={guard(temPartidas)}>Ver partidas</Link>
-              <Link className="btn btn--sm btn--muted" to={`/campeonatos/${c.id}/tabela`} aria-disabled={!temClassificacao} onClick={guard(temClassificacao)}>Ver tabela</Link>
+              {temPartidas && (
+                <Link className="btn btn--sm btn--orange" to={`/campeonatos/${c.id}/partidas`}>Partidas</Link>
+              )}
+              {temKnockout && (
+                <Link className="btn btn--sm btn--orange" to={`/campeonatos/${c.id}/chaveamento`}>Chaves</Link>
+              )}
+              {temNaoKnockout && (
+                <Link className="btn btn--sm btn--orange" to={`/campeonatos/${c.id}/classificacao`}>Tabela</Link>
+              )}
             </>
           );
+
+          // Narrow: monta o array dinamicamente (só o que existir)
+          const actions = [];
+          if (temPartidas) actions.push({ label: "Partidas", variant: "orange", to: `/campeonatos/${c.id}/partidas` });
+          if (temKnockout) actions.push({ label: "Chaves", variant: "orange", to: `/campeonatos/${c.id}/chaveamento` });
+          if (temNaoKnockout) actions.push({ label: "Tabela", variant: "orange", to: `/campeonatos/${c.id}/classificacao` });
 
           const acoesNarrow = (
             <MenuAcoesNarrow
               id={c.id}
               openMenuId={openMenuId}
               setOpenMenuId={setOpenMenuId}
-              actions={[
-                { label: "Ver partidas", variant: "orange", to: `/campeonatos/${c.id}/partidas`, disabled: !temPartidas },
-                { label: "Ver tabela", variant: "muted", to: `/campeonatos/${c.id}/tabela`, disabled: !temClassificacao },
-              ]}
+              actions={actions}
             />
           );
 
@@ -347,11 +498,132 @@ function CampeonatosBlock({ campeonatos, partidas, classificacao }) {
               icone={null}
               titulo={titulo}
               subtitulo={subtitulo}
-              acoes={isNarrow ? acoesNarrow : acoesWide}
+              acoes={isNarrow ? acoesNarrow : linksWide}
             />
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function PartidasBlock({ partidas, isOwnerTeamId }) {
+  const isNarrow = useIsNarrow(520);
+
+  // separa encerradas/próximas
+  const encerradas = (partidas || [])
+    .filter((p) => !!p.encerrada)
+    .sort((a, b) => {
+      const da = a.data_hora ? new Date(a.data_hora).getTime() : 0;
+      const db = b.data_hora ? new Date(b.data_hora).getTime() : 0;
+      return db - da; // mais recentes primeiro
+    })
+    .slice(0, 5);
+
+  const proximas = (partidas || [])
+    .filter((p) => !p.encerrada)
+    .sort((a, b) => {
+      const da = a.data_hora ? new Date(a.data_hora).getTime() : Number.MAX_SAFE_INTEGER;
+      const db = b.data_hora ? new Date(b.data_hora).getTime() : Number.MAX_SAFE_INTEGER;
+      return da - db; // as mais próximas primeiro
+    })
+    .slice(0, 5);
+
+  const Section = ({ title, items }) => (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        className="list__section"
+        style={{
+          padding: "8px 12px",
+          fontWeight: 600,
+          background: "#f3f4f6",
+          border: "1px solid #e5e7eb",
+          borderBottom: 0,
+        }}
+      >
+        {title}
+      </div>
+
+      <ul className="list card" style={{ marginTop: 0 }}>
+        {items.length === 0 ? (
+          <li className="list__item">Nenhuma partida.</li>
+        ) : (
+          items.map((p) => {
+            // Subtítulo:
+            // - Wide/desktop: campeonato · data/hora · local
+            // - Mobile/vertical: apenas campeonato
+            const subtitleWide =
+              `${p.campeonato?.nome ? p.campeonato.nome + " · " : ""}` +
+              `${p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}` +
+              `${p.local ? " · " + p.local : ""}`;
+
+            const subtitleNarrow = p.campeonato?.nome || "";
+            const subtitleText = isNarrow ? subtitleNarrow : subtitleWide;
+
+            return (
+  <li key={p.id} className="list__item">
+    <div
+      className="list__left"
+      style={{
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",   // <-- força segunda linha para o subtítulo
+        alignItems: "flex-start",
+        gap: 4,
+      }}
+    >
+      {/* 1ª linha: A x B */}
+      <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <TeamIcon team={p.time_a} size={20} />
+        <span className="mono">{timeLabel(p, "a", isNarrow)}</span>
+        <strong className="mono">{p.encerrada ? (p.gols_time_a ?? 0) : "—"}</strong>
+        <span className="mono">x</span>
+        <strong className="mono">{p.encerrada ? (p.gols_time_b ?? 0) : "—"}</strong>
+        <span className="mono">{timeLabel(p, "b", isNarrow)}</span>
+        <TeamIcon team={p.time_b} size={20} />
+      </div>
+
+      {/* 2ª linha: subtítulo SEMPRE separado
+          - narrow: só campeonato
+          - wide: campeonato · data/hora · local */}
+      {(() => {
+        const subtitleWide =
+          `${p.campeonato?.nome ? p.campeonato.nome + " · " : ""}` +
+          `${p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}` +
+          `${p.local ? " · " + p.local : ""}`;
+        const subtitleNarrow = p.campeonato?.nome || "";
+        const subtitleText = isNarrow ? subtitleNarrow : subtitleWide;
+
+        return (
+          subtitleText && (
+            <div className="list__subtitle" style={{ marginTop: 2 }}>
+              {subtitleText}
+            </div>
+          )
+        );
+      })()}
+
+      {/* 3ª linha: pênaltis, se houver */}
+      {p.encerrada && p.penaltis_time_a != null && p.penaltis_time_b != null && (
+        <div className="text-muted" style={{ fontSize: 12 }}>
+          Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}
+        </div>
+      )}
+    </div>
+  </li>
+);
+
+
+          })
+        )}
+      </ul>
+    </div>
+  );
+
+  return (
+    <div>
+      <Section title="Últimas 5 partidas" items={encerradas} />
+      <Section title="Próximas 5 partidas" items={proximas} />
     </div>
   );
 }
@@ -361,7 +633,7 @@ function JogadoresBlock({ jogadores, time }) {
 
   const header = (
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-      <div className="text-muted">{total} jogador(es)</div>
+      <div className="badge">{total} jogador(es)</div>
       <Link to={`/jogadores?time=${time.id}`} className="btn btn--orange">Gerenciar jogadores</Link>
     </div>
   );

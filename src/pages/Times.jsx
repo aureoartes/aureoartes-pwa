@@ -1,19 +1,50 @@
-// v1.1.0 — Autenticação Supabase + RLS (ownerId) — 2025-09-15
-// Ajustes principais:
-// - Usa useAuth() para obter { ownerId, loading } e condiciona os loads
-// - Substitui getUsuarioId() por ownerId em todas as queries
-// - Garante enabled apenas quando ownerId existir (evita “herdar” dados na troca de login)
+// v1.2.0.10 — Ajuste nos cards da lista: badge mais próximo ao nome (reduzir espaçamento) — 2025-09-22
 
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";            // ← novo (nomeado)
-import { useAuth } from "@/auth/AuthProvider";              // ← novo
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/auth/AuthProvider";
 import { getContrastShadow } from "../utils/colors";
 import ColorSwatchSelect from "../components/ColorSwatchSelect";
 import QuickAddInline from "../components/QuickAddInline";
 
 export default function Times() {
+  function TeamPreview({ nome, abreviacao, escudoUrl, c1, c2, cd, categoriaDesc }) {
+    return (
+      <div className="card team-card team-preview">
+        <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
+        <div
+          className="team-card__badge"
+          style={{ border: `3px solid ${cd}`, background: `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)` }}
+        >
+          {escudoUrl ? (
+            <img src={escudoUrl} alt="Escudo preview" />
+          ) : (
+            <span
+              className="team-card__sigla"
+              style={{ color: cd, textShadow: getContrastShadow(cd) }}
+            >
+              {(abreviacao || "?").toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div className="team-card__info team-card__info--with-badge">
+          <div>
+            <div className="team-card__title">{nome || "Seu Time"}</div>
+            <div className="team-card__subtitle">{categoriaDesc || "Categoria"}</div>
+          </div>
+          <div className="team-card__dots">
+            <span className="team-card__dot" style={{ background: c1 }} />
+            <span className="team-card__dot" style={{ background: c2 }} />
+            <span className="team-card__dot" style={{ background: cd }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const { ownerId, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
 
   // Listas
   const [times, setTimes] = useState([]);
@@ -31,8 +62,8 @@ export default function Times() {
   const [abreviacao, setAbreviacao] = useState("");
   const [categoriaId, setCategoriaId] = useState(null);
   const [escudoUrl, setEscudoUrl] = useState("");
-  const [cor1, setCor1] = useState("#FFFFFF");
-  const [cor2, setCor2] = useState("#000000");
+  const [cor1, setCor1] = useState("#FB8C00");
+  const [cor2, setCor2] = useState("#FFFFFF");
   const [corDetalhe, setCorDetalhe] = useState("#000000");
   const [regiaoId, setRegiaoId] = useState("");
 
@@ -105,8 +136,8 @@ export default function Times() {
     setAbreviacao("");
     setCategoriaId(getCategoriaPadraoId());
     setEscudoUrl("");
-    setCor1("#FFFFFF");
-    setCor2("#000000");
+    setCor1("#FB8C00");
+    setCor2("#FFFFFF");
     setCorDetalhe("#000000");
     setRegiaoId(regiaoFiltroId || "");
   }
@@ -117,8 +148,8 @@ export default function Times() {
     setAbreviacao(t.abreviacao || "");
     setCategoriaId(t.categoria_id ?? getCategoriaPadraoId());
     setEscudoUrl(t.escudo_url || "");
-    setCor1(t.cor1 || "#FFFFFF");
-    setCor2(t.cor2 || "#000000");
+    setCor1(t.cor1 || "#FB8C00");
+    setCor2(t.cor2 || "#FFFFFF");
     setCorDetalhe(t.cor_detalhe || "#000000");
     setRegiaoId(t.regiao_id || "");
     setAbrirCadastro(true);
@@ -219,44 +250,34 @@ export default function Times() {
 
   return (
     <div className="container">
-      {/* Header + botão Novo Time */}
-      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h1 style={{ margin: 0 }}>Times</h1>
-            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Cadastre, edite e gerencie os times da sua competição.
-            </div>
+      {/* Header com botão Novo Time + Voltar */}
+      <div className="card p-4">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 220, flex: "1 1 320px" }}>
+            <h1 className="m-0">Times</h1>
+            <div className="text-muted">Cadastre, edite e gerencie os times da sua competição.</div>
           </div>
 
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <label className="label" style={{ margin: 0 }}>Ordenar:</label>
-            <select className="select" value={ordenacao} style={{ minWidth: 160}} onChange={(e) => setOrdenacao(e.target.value)}>
+          <div className="col" style={{ minWidth: 260, maxWidth: 360, flex: "0 1 360px", gap: 8 }}>
+            <label className="label">Ordenar:</label>
+            <select className="select" value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
               <option value="alfabetica">Ordem alfabética</option>
               <option value="mais_recente">Mais recente</option>
               <option value="mais_antigo">Mais antigo</option>
             </select>
 
-            <label className="label" style={{ margin: "0 0 0 8px" }}>Região:</label>
-            <select
-              className="select"
-              value={regiaoFiltroId}
-              onChange={(e) => setRegiaoFiltroId(e.target.value)}
-              style={{ minWidth: 160}}
-            >
+            <label className="label">Região:</label>
+            <select className="select" value={regiaoFiltroId} onChange={(e) => setRegiaoFiltroId(e.target.value)}>
               <option value="">Todas</option>
               {regioes.map((r) => (
                 <option key={r.id} value={r.id}>{r.descricao}</option>
               ))}
             </select>
 
-            <button
-              className="btn btn--orange"
-              onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-              disabled={!ownerId} // evita criar antes de ter ownerId
-            >
-              + Novo Time
-            </button>
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn btn--orange" onClick={() => { resetForm(); setAbrirCadastro(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}>+ Novo Time</button>
+              <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -264,11 +285,11 @@ export default function Times() {
       {/* Cadastro/edição (oculto por padrão) */}
       {abrirCadastro && (
         <div className="card p-4">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: 12 }}>
+          <div className="row p-4">
             <div className="collapsible__title">{editandoId ? "Editar Time" : "Cadastrar Time"}</div>
           </div>
 
-          <div style={{ padding: 12 }}>
+          <div>
             <form onSubmit={handleSubmit}>
               <div className="grid grid-2">
                 <div className="field">
@@ -310,13 +331,12 @@ export default function Times() {
 
                 <div className="field">
                   <label className="label">Região</label>
-                  <div style={{ position: "relative" }}>
-                    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                  <div>
+                    <div className="row">
                       <select
                         className="select"
                         value={regiaoId}
                         onChange={(e) => setRegiaoId(e.target.value)}
-                        style={{ minWidth: 160 }}
                       >
                         <option value="">Selecione…</option>
                         {regioes.map((r) => (
@@ -337,7 +357,7 @@ export default function Times() {
                     {quickAddOpen && (
                       <QuickAddInline
                         label="Nova região"
-                        placeholder="Ex.: Suldeste"
+                        placeholder="Ex.: Sudeste"
                         align="left"
                         onCreate={(descricao) => createRegiao(descricao)}
                         onClose={() => setQuickAddOpen(false)}
@@ -359,15 +379,30 @@ export default function Times() {
                 <ColorSwatchSelect label="Cor 1" value={cor1} onChange={setCor1} />
                 <ColorSwatchSelect label="Cor 2" value={cor2} onChange={setCor2} />
                 <ColorSwatchSelect label="Cor Detalhe" value={corDetalhe} onChange={setCorDetalhe} />
+                {/* Preview ao vivo */}
+                <TeamPreview
+                  nome={nome}
+                  abreviacao={abreviacao}
+                  escudoUrl={escudoUrl}
+                  c1={cor1}
+                  c2={cor2}
+                  cd={corDetalhe}
+                  categoriaDesc={(categorias.find(c => c.id === (categoriaId || ""))?.descricao) || "Categoria"}
+                />
               </div>
 
-              <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn btn--orange" type="submit" disabled={saving || !ownerId}>
-                  {editandoId ? "Salvar Alterações" : "Salvar Time"}
-                </button>
-                <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
-                  Cancelar
-                </button>
+              <div className="row" style={{ justifyContent: "space-between", marginTop: 12 }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn btn--orange" type="submit" disabled={saving || !ownerId}>
+                    {editandoId ? "Salvar Alterações" : "Salvar Time"}
+                  </button>
+                  <button className="btn btn--muted" type="button" onClick={() => { resetForm(); setAbrirCadastro(false); }}>
+                    Cancelar
+                  </button>
+                </div>
+                {editandoId && (
+                  <button className="btn btn--red" type="button" onClick={() => handleDelete(editandoId)}>Excluir</button>
+                )}
               </div>
             </form>
           </div>
@@ -376,11 +411,11 @@ export default function Times() {
 
       {/* Lista de times em cards detalhados */}
       {carregando ? (
-        <div className="card" style={{ padding: 14 }}>Carregando…</div>
+        <div className="card p-4">Carregando…</div>
       ) : timesFiltrados.length === 0 ? (
-        <div className="card" style={{ padding: 14 }}>Nenhum time encontrado.</div>
+        <div className="card p-4">Nenhum time encontrado.</div>
       ) : (
-        <div className="grid grid-3">
+        <div className="grid grid-3 cards-equal">
           {timesFiltrados.map((t) => {
             const c1 = t.cor1 || "#FFFFFF";
             const c2 = t.cor2 || "#000000";
@@ -388,7 +423,7 @@ export default function Times() {
             const categoriaDesc = categorias.find((c) => c.id === t.categoria_id)?.descricao || "—";
 
             return (
-              <div key={t.id} className="card team-card">
+              <div key={t.id} className="card team-card no-mb">
                 <div className="team-card__banner" style={{ "--c1": c1, "--c2": c2 }} />
                 <div
                   className="team-card__badge"
@@ -411,7 +446,7 @@ export default function Times() {
                     <div className="team-card__title">{t.nome}</div>
                     <div className="team-card__subtitle">{categoriaDesc}</div>
                     {t.regiao_id && (
-                      <div className="text-muted" style={{ marginTop: 4 }}>
+                      <div className="text-muted">
                         Região: {regioes.find((r) => r.id === t.regiao_id)?.descricao || "—"}
                       </div>
                     )}
@@ -424,10 +459,9 @@ export default function Times() {
                   </div>
                 </div>
 
-                <div className="row" style={{ gap: 6, padding: "10px 12px 12px" }}>
+                <div className="row team-card__footer">
                   <Link className="btn btn--sm btn--orange" to={`/times/${t.id}`}>Ver detalhes</Link>
                   <button className="btn btn--sm btn--muted" onClick={() => handleEdit(t)}>Editar</button>
-                  <button className="btn btn--sm btn--red" onClick={() => handleDelete(t.id)}>Excluir</button>
                 </div>
               </div>
             );

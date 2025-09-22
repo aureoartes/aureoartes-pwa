@@ -1,8 +1,9 @@
+// v1.2.0.0 — Chaveamento (mata-mata) — Header padrão, botões Tabela/Partidas em laranja e Voltar para tela anterior
 // v1.1.0 — Chaveamento (mata-mata) — Autenticação Supabase + RLS (ownerId)
 import { useEffect, useMemo, useState, useLayoutEffect, useRef } from "react";
-import { Link, useParams } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";         // <- named export
-import { useAuth } from "@/auth/AuthProvider"; // troque para "../auth/AuthProvider" se não usar alias "@"
+import { useParams, useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/auth/AuthProvider";
 import TeamIcon from "../components/TeamIcon";
 
 const ETAPAS_ORDEM = [
@@ -184,6 +185,7 @@ function NomeTime({ team, title, maxWidth = 160 }) {
 export default function CampeonatoChaveamento() {
   const { ownerId, loading: authLoading } = useAuth();
   const { id: campeonatoId } = useParams();
+  const navigate = useNavigate();
 
   const [camp, setCamp] = useState(null);
   const [jogos, setJogos] = useState([]);
@@ -203,7 +205,6 @@ export default function CampeonatoChaveamento() {
       setLoading(true);
       setErro("");
       try {
-        // Campeonatos do dono (segurança adicional)
         const { data: c, error: e1 } = await supabase
           .from("campeonatos")
           .select("*")
@@ -213,7 +214,6 @@ export default function CampeonatoChaveamento() {
         if (e1) throw e1;
         setCamp(c);
 
-        // Partidas do campeonato (RLS deve proteger via FK; filtramos por campeonato_id)
         const { data: ps, error: e2 } = await supabase
           .from("partidas")
           .select(`id, chave_id, etapa, perna, is_mata_mata, encerrada,
@@ -221,7 +221,6 @@ export default function CampeonatoChaveamento() {
                    time_a:time_a_id(id, nome, abreviacao, cor1, cor2, cor_detalhe),
                    time_b:time_b_id(id, nome, abreviacao, cor1, cor2, cor_detalhe)`)
           .eq("campeonato_id", campeonatoId)
-          .eq("is_mata_mata", true)
           .order("etapa", { ascending: true })
           .order("chave_id", { ascending: true })
           .order("perna", { ascending: true, nullsFirst: true });
@@ -234,8 +233,7 @@ export default function CampeonatoChaveamento() {
       }
     })();
   }, [authLoading, ownerId, campeonatoId]);
-
-  // ====== (resto da sua tela inalterado) ======
+  
   // Agrupa por etapa -> chaves (ida/volta)
   const colunas = useMemo(() => {
     const porEtapa = new Map();
@@ -362,15 +360,9 @@ export default function CampeonatoChaveamento() {
     return out;
   }, [jogos]);
 
-  if (authLoading) {
-    return <div className="container"><div className="card">Carregando autenticação…</div></div>;
-  }
-  if (loading) {
-    return <div className="container"><div className="card">Carregando…</div></div>;
-  }
-  if (erro) {
-    return <div className="container"><div className="card">❌ {erro}</div></div>;
-  }
+  if (authLoading) {return <div className="container"><div className="card">Carregando autenticação…</div></div>;}
+  if (loading) {return <div className="container"><div className="card">Carregando…</div></div>;}
+  if (erro) {return <div className="container"><div className="card">❌ {erro}</div></div>;}
 
   const ui = {
     container: {},
@@ -405,16 +397,21 @@ export default function CampeonatoChaveamento() {
   };
 
   const baseCount = Math.max(1, colunas[0]?.total || 1);
+  const hasFaseDeGrupos = jogos.some(j => !j.is_mata_mata);
 
   return (
-    <div className="container" style={ui.container}>
-      <div className="row" style={ui.headerWrap}>
+    <div className="container">
+      <div className="card p-4 mb-3" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22 }}>Chaveamento — {camp?.nome}</h1>
           <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>Mata-mata</div>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link to={`/campeonatos/${camp?.id}/partidas`} className="btn btn--muted">Voltar</Link>
+          {hasFaseDeGrupos && (
+            <button className="btn btn--primary" onClick={() => navigate(`/campeonatos/${camp?.id}/classificacao`)}>Tabela</button>
+          )}
+          <button className="btn btn--primary" onClick={() => navigate(`/campeonatos/${camp?.id}/partidas`)}>Partidas</button>
+          <button className="btn btn--muted" onClick={() => navigate(-1)}>← Voltar</button>
         </div>
       </div>
 

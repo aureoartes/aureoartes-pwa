@@ -1,9 +1,10 @@
-// v1.2.0.3 — Campeonatos
+// v1.2.1.0 — Campeonatos
 // Header alinhado ao padrão de Jogadores.jsx; ações ajustadas; botões Partidas/Chaves/Tabela conforme regras
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import MenuAcoesNarrow from "../components/MenuAcoesNarrow";
+import TeamIcon from "../components/TeamIcon";
 import { useAuth } from "@/auth/AuthProvider";
 
 function labelFormato(v) {
@@ -27,6 +28,8 @@ export default function Campeonatos() {
   const [campIdsComPartidas, setCampIdsComPartidas] = useState(new Set());
   const [campIdsMataMata, setCampIdsMataMata] = useState(new Set());
   const [campIdsLiga, setCampIdsLiga] = useState(new Set());
+  const [finishedByCamp, setFinishedByCamp] = useState(new Map());
+  const [totalByCamp, setTotalByCamp] = useState(new Map());
 
   // ====== Form (criação/edição) ======
   const [abrirCadastro, setAbrirCadastro] = useState(false);
@@ -99,12 +102,21 @@ export default function Campeonatos() {
       if (ids.length) {
         const { data: ps } = await supabase
           .from("partidas")
-          .select("campeonato_id, is_mata_mata")
+          .select("campeonato_id, is_mata_mata, encerrada")
           .in("campeonato_id", ids);
         const all = ps || [];
         setCampIdsComPartidas(new Set(all.map((p) => p.campeonato_id)));
         setCampIdsMataMata(new Set(all.filter(p => p.is_mata_mata === true).map(p => p.campeonato_id)));
         setCampIdsLiga(new Set(all.filter(p => !p.is_mata_mata).map(p => p.campeonato_id)));
+        // map de encerradas/total por campeonato
+        const finished = new Map();
+        const totals = new Map();
+        for (const p of all) {
+          totals.set(p.campeonato_id, (totals.get(p.campeonato_id) || 0) + 1);
+          if (p.encerrada) finished.set(p.campeonato_id, (finished.get(p.campeonato_id) || 0) + 1);
+        }
+        setFinishedByCamp(finished);
+        setTotalByCamp(totals);
       } else {
         setCampIdsComPartidas(new Set());
         setCampIdsMataMata(new Set());
@@ -128,6 +140,20 @@ export default function Campeonatos() {
   const hasPartidas = (campId) => campIdsComPartidas.has(campId);
   const hasMataMata = (campId) => campIdsMataMata.has(campId);
   const hasLiga = (campId) => campIdsLiga.has(campId);
+
+  function statusTeam(campId) {
+    const total = totalByCamp.get(campId) || 0;
+    const fin = finishedByCamp.get(campId) || 0;
+    // Paleta AureoArtes
+    const RED = "#FF3B30";     // nenhum encerrado (inclui sem partidas)
+    const GREEN = "#00A65A";   // todas encerradas
+    const YELLOW = "#FFC107";  // misto
+    const WHITE = "#FFFFFF";   // detalhe
+
+    if (fin === 0) return { cor1: RED, cor2: RED, cor_detalhe: WHITE };
+    if (fin === total && total > 0) return { cor1: GREEN, cor2: GREEN, cor_detalhe: WHITE };
+    return { cor1: YELLOW, cor2: YELLOW, cor_detalhe: WHITE };
+  };
 
   function resetForm() {
     setEditando(null);
@@ -490,10 +516,13 @@ export default function Campeonatos() {
           <ul className="list">
             {listaOrdenada.map((c) => (
               <li key={c.id} className="list__item">
-                <div className="list__left">
+                <div className="list__left" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ width: isMobile ? 28 : 22, height: isMobile ? 28 : 22, flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <TeamIcon team={statusTeam(c.id)} size={isMobile ? 28 : 22} title="Status do campeonato" />
+                  </span>
                   <div>
                     <div className="list__title">{c.nome}</div>
-                    <div className="list__subtitle">
+                    <div className="list__subtitle" style={isMobile ? { maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } : {}}>
                       {labelFormato(c.formato)} • {c.numero_equipes} equipes • {c.categorias?.descricao || "—"} • {c.ida_volta ? "ida e volta" : "somente ida"}
                     </div>
                   </div>
@@ -503,7 +532,7 @@ export default function Campeonatos() {
                   <div className="list__right" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {/* Partidas sempre que houver quaisquer partidas */}
                     <button
-                      className="btn btn--muted"
+                      className="btn btn--orange"
                       onClick={() => navigate(`/campeonatos/${c.id}/partidas`)}
                       disabled={!hasPartidas(c.id)}
                     >
@@ -529,7 +558,7 @@ export default function Campeonatos() {
                       openMenuId={openMenuId}
                       setOpenMenuId={setOpenMenuId}
                       actions={[
-                        { label: "Partidas", className: "btn btn--muted", onClick: () => navigate(`/campeonatos/${c.id}/partidas`), disabled: !hasPartidas(c.id) },
+                        { label: "Partidas", className: "btn btn--orange", onClick: () => navigate(`/campeonatos/${c.id}/partidas`), disabled: !hasPartidas(c.id) },
                         ...(hasMataMata(c.id) ? [{ label: "Chaves", className: "btn btn--orange", onClick: () => navigate(`/campeonatos/${c.id}/chaveamento`) }] : []),
                         ...(hasLiga(c.id) ? [{ label: "Tabela", className: "btn btn--orange", onClick: () => navigate(`/campeonatos/${c.id}/classificacao`) }] : []),
                         { label: "Editar", className: "btn btn--muted", onClick: () => abrirEditar(c) }

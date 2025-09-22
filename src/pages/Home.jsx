@@ -1,25 +1,57 @@
-// v1.2.0.0 — exibir ultima partida (dinâmica se houver)
-// Atualizado: prévia do jogo mostra a última partida encerrada do usuário autenticado
+// v1.2.0.2 — Home: última partida com times via .in(), abreviacao no mobile/vertical
 import { Link } from "react-router-dom";
 import TeamIcon from "../components/TeamIcon";
 import StoreBanner from "../components/StoreBanner";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
+/** Detecta mobile/vertical */
+function useIsMobileVertical() {
+  const query = "(max-width: 640px) and (orientation: portrait)";
+  const getMatch = () =>
+    typeof window !== "undefined" && "matchMedia" in window
+      ? window.matchMedia(query).matches
+      : false;
+
+  const [isMobileVertical, setIsMobileVertical] = useState(getMatch());
+
+  useEffect(() => {
+    if (!("matchMedia" in window)) return;
+    const mql = window.matchMedia(query);
+    const handler = (e) => setIsMobileVertical(e.matches);
+
+    if (mql.addEventListener) mql.addEventListener("change", handler);
+    else mql.addListener?.(handler);
+
+    const onResize = () => setIsMobileVertical(getMatch());
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", handler);
+      else mql.removeListener?.(handler);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return isMobileVertical;
+}
+
 export default function Home() {
   const [session, setSession] = useState(null);
   const [lastMatch, setLastMatch] = useState(null); // { campeonatoNome, timeA, timeB, golsA, golsB, penA?, penB?, dataHora, local }
   const [loadingMatch, setLoadingMatch] = useState(false);
+  const isMobileVertical = useIsMobileVertical();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) =>
+      setSession(sess || null)
+    );
     return () => sub?.subscription?.unsubscribe?.();
   }, []);
 
   const logged = !!session?.user;
 
-  // Util: formata data/hora (pt-BR)
   const formatWhen = (iso) => {
     if (!iso) return null;
     const d = new Date(iso);
@@ -28,18 +60,18 @@ export default function Home() {
     return { data, hora };
   };
 
-  // Carrega última partida encerrada do usuário autenticado
   useEffect(() => {
     if (!logged) {
       setLastMatch(null);
       return;
     }
     let cancelled = false;
+
     async function loadLastMatch() {
       try {
         setLoadingMatch(true);
 
-        // 1) Busca a última partida encerrada (prioriza data_hora; se nula, usa criado_em)
+        // 1) Última partida encerrada
         const { data: partida, error: errPartida } = await supabase
           .from("partidas")
           .select(
@@ -50,10 +82,7 @@ export default function Home() {
               "time_b_id",
               "gols_time_a",
               "gols_time_b",
-              // Campos de pênaltis são opcionais no schema atual; se não existirem, o select('*') evitaria erro,
-              // mas aqui tentamos de forma defensiva. Se o schema não tiver, o Supabase pode errar.
-              // Caso encontrar erro de coluna, basta remover as duas linhas abaixo.
-              "penaltis_time_a",
+              "penaltis_time_a",   // se não existir no schema, veremos fallback
               "penaltis_time_b",
               "data_hora",
               "criado_em",
@@ -67,8 +96,10 @@ export default function Home() {
           .limit(1)
           .maybeSingle();
 
+        let p = partida;
+
+        // Fallback se as colunas de pênaltis não existirem
         if (errPartida) {
-          // fallback: tenta novamente sem as colunas de pênaltis (caso não existam no schema)
           const { data: partidaNoPens, error: err2 } = await supabase
             .from("partidas")
             .select(
@@ -95,94 +126,84 @@ export default function Home() {
             if (!cancelled) setLastMatch(null);
             return;
           }
-          // Continua com objeto sem pênaltis
-          const p = partidaNoPens;
-
-          // 2) Busca campeonato
-          const { data: camp } = await supabase
-            .from("campeonatos")
-            .select("id, nome")
-            .eq("id", p.campeonato_id)
-            .maybeSingle();
-
-          // 3) Busca times
-          const [{ data: tA }, { data: tB }] = await Promise.all([
-            supabase.from("times").select("id, nome, cor1, cor2, cor_detalhe").eq("id", p.time_a_id).maybeSingle(),
-            supabase.from("times").select("id, nome, cor1, cor2, cor_detalhe").eq("id", p.time_b_id).maybeSingle(),
-          ]);
-
-          if (!cancelled) {
-            setLastMatch({
-              campeonatoNome: camp?.nome || "Prévia do jogo",
-              golsA: p.gols_time_a ?? 0,
-              golsB: p.gols_time_b ?? 0,
-              penA: null,
-              penB: null,
-              timeA: tA
-                ? { nome: tA.nome, cor1: tA.cor1, cor2: tA.cor2, cor_detalhe: tA.cor_detalhe }
-                : { nome: "Time A" },
-              timeB: tB
-                ? { nome: tB.nome, cor1: tB.cor1, cor2: tB.cor2, cor_detalhe: tB.cor_detalhe }
-                : { nome: "Time B" },
-              dataHora: p.data_hora || p.criado_em,
-              local: p.local || "Local não informado",
-            });
-          }
-          return;
+          p = partidaNoPens;
         }
 
-        if (!partida) {
+        if (!p) {
           if (!cancelled) setLastMatch(null);
           return;
         }
 
-        // 2) Busca campeonato
-        const { data: camp } = await supabase
+        // 2) Campeonato
+        const { data: camp, error: errCamp } = await supabase
           .from("campeonatos")
           .select("id, nome")
-          .eq("id", partida.campeonato_id)
+          .eq("id", p.campeonato_id)
           .maybeSingle();
+        if (errCamp) console.warn("Erro ao buscar campeonato:", errCamp);
 
-        // 3) Busca times
-        const [{ data: tA }, { data: tB }] = await Promise.all([
-          supabase.from("times").select("id, nome, cor1, cor2, cor_detalhe").eq("id", partida.time_a_id).maybeSingle(),
-          supabase.from("times").select("id, nome, cor1, cor2, cor_detalhe").eq("id", partida.time_b_id).maybeSingle(),
-        ]);
+        // 3) Times (batida única com .in e trazendo também 'sigla')
+        const ids = [p.time_a_id, p.time_b_id].filter(Boolean);
+        let tA = null, tB = null;
 
-        if (!cancelled) {
-          setLastMatch({
-            campeonatoNome: camp?.nome || "Prévia do jogo",
-            golsA: partida.gols_time_a ?? 0,
-            golsB: partida.gols_time_b ?? 0,
-            penA: partida.penaltis_time_a ?? null,
-            penB: partida.penaltis_time_b ?? null,
-            timeA: tA
-              ? { nome: tA.nome, cor1: tA.cor1, cor2: tA.cor2, cor_detalhe: tA.cor_detalhe }
-              : { nome: "Time A" },
-            timeB: tB
-              ? { nome: tB.nome, cor1: tB.cor1, cor2: tB.cor2, cor_detalhe: tB.cor_detalhe }
-              : { nome: "Time B" },
-            dataHora: partida.data_hora || partida.criado_em,
-            local: partida.local || "Local não informado",
-          });
+        if (ids.length) {
+          const { data: teams, error: errTeams } = await supabase
+            .from("times")
+            .select("id, nome, abreviacao, cor1, cor2, cor_detalhe")
+            .in("id", ids);
+
+          if (errTeams) console.warn("Erro ao buscar times:", errTeams);
+
+          if (Array.isArray(teams) && teams.length) {
+            tA = teams.find((t) => t.id === p.time_a_id) || null;
+            tB = teams.find((t) => t.id === p.time_b_id) || null;
+          }
         }
-      } catch (_err) {
+
+        setLastMatch({
+          campeonatoNome: camp?.nome || "Prévia do jogo",
+          golsA: p.gols_time_a ?? 0,
+          golsB: p.gols_time_b ?? 0,
+          penA: p.penaltis_time_a ?? null,
+          penB: p.penaltis_time_b ?? null,
+          timeA: tA
+            ? { nome: tA.nome, abreviacao: tA.abreviacao, cor1: tA.cor1, cor2: tA.cor2, cor_detalhe: tA.cor_detalhe }
+            : { nome: "Time A", abreviacao: "A" },
+          timeB: tB
+            ? { nome: tB.nome, abreviacao: tB.abreviacao, cor1: tB.cor1, cor2: tB.cor2, cor_detalhe: tB.cor_detalhe }
+            : { nome: "Time B", abreviacao: "B" },
+          dataHora: p.data_hora || p.criado_em,
+          local: p.local || "Local não informado",
+        });
+
+      } catch (e) {
+        console.warn("loadLastMatch error:", e);
         if (!cancelled) setLastMatch(null);
       } finally {
         if (!cancelled) setLoadingMatch(false);
       }
     }
+
     loadLastMatch();
     return () => {
       cancelled = true;
     };
   }, [logged]);
 
-  const quando = useMemo(() => (lastMatch?.dataHora ? formatWhen(lastMatch.dataHora) : null), [lastMatch?.dataHora]);
+  const quando = useMemo(
+    () => (lastMatch?.dataHora ? formatWhen(lastMatch.dataHora) : null),
+    [lastMatch?.dataHora]
+  );
+
+  const showName = (t) => {
+    if (!t) return "";
+    if (isMobileVertical && t.abreviacao) return t.abreviacao;
+    return t.nome || "";
+  };
 
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#FFF6EF,#FFE7D4)" }}>
-      {/* HERO – tons de laranja, CTA único */}
+      {/* HERO */}
       <section
         className="page-header"
         style={{
@@ -193,9 +214,11 @@ export default function Home() {
       >
         <div className="container">
           <div className="grid grid-2">
-            {/* Lado esquerdo: título e CTA do placar */}
+            {/* Esquerda */}
             <div>
-              <h1 className="page-header__title" style={{ marginBottom: 6, color: "#fff" }}>Abra o placar e jogue já</h1>
+              <h1 className="page-header__title" style={{ marginBottom: 6, color: "#fff" }}>
+                Abra o placar e jogue já
+              </h1>
               <p className="page-header__subtitle" style={{ maxWidth: 680, color: "#fff" }}>
                 Use agora para um <strong>amistoso</strong> ou inicie a partir de uma <strong>partida do seu campeonato</strong>.
               </p>
@@ -206,21 +229,22 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Lado direito: prévia (dinâmica se logado e houver partida; senão, mock ilustrativo) */}
+            {/* Direita: Prévia */}
             <div className="card" style={{ padding: 18, borderColor: "#ffddb8", background: "#fff9f3", color: "#2c1a11" }}>
               <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 16, letterSpacing: 0.2 }}>
-                {logged && !loadingMatch && lastMatch?.campeonatoNome
-                  ? lastMatch.campeonatoNome
-                  : "Prévia do jogo"}
+                {logged && !loadingMatch && lastMatch?.campeonatoNome ? lastMatch.campeonatoNome : "Prévia do jogo"}
               </div>
 
               {/* Linha 2 */}
               {logged && !loadingMatch && lastMatch ? (
                 <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div className="row" style={{ alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <TeamIcon team={{ cor1: lastMatch.timeA?.cor1, cor2: lastMatch.timeA?.cor2, cor_detalhe: lastMatch.timeA?.cor_detalhe }} size={28} />
+                    <TeamIcon
+                      team={{ cor1: lastMatch.timeA?.cor1, cor2: lastMatch.timeA?.cor2, cor_detalhe: lastMatch.timeA?.cor_detalhe }}
+                      size={28}
+                    />
                     <span style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {lastMatch.timeA?.nome || "Time A"}
+                      {showName(lastMatch.timeA) || "Time A"}
                     </span>
                     {Number.isFinite(lastMatch.penA) && lastMatch.penA !== null ? (
                       <span style={{ fontSize: 12, color: "#7a5643" }}> ({lastMatch.penA})</span>
@@ -237,10 +261,21 @@ export default function Home() {
                     {Number.isFinite(lastMatch.penB) && lastMatch.penB !== null ? (
                       <span style={{ fontSize: 12, color: "#7a5643" }}>({lastMatch.penB}) </span>
                     ) : null}
-                    <span style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>
-                      {lastMatch.timeB?.nome || "Time B"}
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        textAlign: "right",
+                      }}
+                    >
+                      {showName(lastMatch.timeB) || "Time B"}
                     </span>
-                    <TeamIcon team={{ cor1: lastMatch.timeB?.cor1, cor2: lastMatch.timeB?.cor2, cor_detalhe: lastMatch.timeB?.cor_detalhe }} size={28} />
+                    <TeamIcon
+                      team={{ cor1: lastMatch.timeB?.cor1, cor2: lastMatch.timeB?.cor2, cor_detalhe: lastMatch.timeB?.cor_detalhe }}
+                      size={28}
+                    />
                   </div>
                 </div>
               ) : (
@@ -276,48 +311,22 @@ export default function Home() {
       {/* LOJA */}
       <StoreBanner
         items={[
-          {
-            key: "oferta1",
-            title: "Times artesanais",
-            subtitle: "Coleções clássicas e personalizadas",
-            href: "https://www.aureoartes.com.br/",
-            bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
-            border: "#ffd6ad",
-            badge: "Novidades",
-          },
-          {
-            key: "oferta2",
-            title: "Acessórios",
-            subtitle: "Palhetas, dadinhos e goleiros",
-            href: "https://www.aureoartes.com.br/",
-            bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)",
-            border: "#ffddb8",
-          },
-          {
-            key: "oferta3",
-            title: "Promoções da semana",
-            subtitle: "Ofertas por tempo limitado",
-            href: "https://www.aureoartes.com.br/",
-            bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)",
-            border: "#ffcfa6",
-            badge: "Oferta",
-          },
+          { key: "oferta1", title: "Times artesanais", subtitle: "Coleções clássicas e personalizadas", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)", border: "#ffd6ad", badge: "Novidades" },
+          { key: "oferta2", title: "Acessórios", subtitle: "Palhetas, dadinhos e goleiros", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)", border: "#ffddb8" },
+          { key: "oferta3", title: "Promoções da semana", subtitle: "Ofertas por tempo limitado", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)", border: "#ffcfa6", badge: "Oferta" },
         ]}
         intervalMs={6000}
       />
 
-      {/* ACESSOS – Times e Campeonatos condicionais */}
+      {/* ACESSOS */}
       {logged ? (
         <section className="container" style={{ padding: "20px 16px 8px" }}>
           <div className="grid grid-2">
-            {/* Times */}
             <div className="card card--soft" style={{ padding: 16 }}>
               <div style={{ fontWeight: 800, marginBottom: 6 }}>Times</div>
               <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Gerencie escudos, cores e elencos.</div>
               <Link to="/times" className="btn btn--orange" style={{ fontWeight: 700 }}>Meus times</Link>
             </div>
-
-            {/* Campeonatos */}
             <div className="card card--soft" style={{ padding: 16 }}>
               <div style={{ fontWeight: 800, marginBottom: 6 }}>Campeonatos</div>
               <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Crie tabelas e acompanhe fases.</div>
@@ -334,7 +343,7 @@ export default function Home() {
         </section>
       )}
 
-      {/* Rodapé discreto */}
+      {/* Rodapé */}
       <div
         role="contentinfo"
         className="mt-auto w-full flex justify-center items-center py-3 text-xs"

@@ -1,4 +1,4 @@
-// v1.1.0 — Partidas do Campeonato — Autenticação Supabase + RLS (ownerId)
+// v1.2.0.2 — Partidas do Campeonato — Header padrão + botões + limites nos campos de edição
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";         // <- named export
@@ -44,7 +44,7 @@ export default function CampeonatoPartidas() {
   const { id: campeonatoId } = useParams();
   const navigate = useNavigate();
   const isNarrow = useIsNarrow(640);
-  const { ownerId, loading: authLoading } = useAuth(); // <<< novo
+  const { ownerId, loading: authLoading } = useAuth();
 
   // dados
   const [camp, setCamp] = useState(null);
@@ -417,30 +417,32 @@ export default function CampeonatoPartidas() {
 
   return (
     <div className="container">
-      {/* Cabeçalho */}
-      <div className="card" style={{ padding: 16, marginBottom: 12, background: "#f9fafb" }}>
+      {/* Cabeçalho — Padrão de card da plataforma, sem inline styles */}
+      <div className="card p-4">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22 }}>Partidas — {camp.nome}</h1>
-            <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>{camp.categoria}</div>
+            <h1 className="h1">Partidas — {camp.nome}</h1>
+            <div className="text-muted small mt-1">{camp.categoria}</div>
           </div>
           <div className="row" style={{ gap: 8 }}>
             {hasMataMata && (
-              <Link to={`/campeonatos/${camp.id}/chaveamento`} className="btn btn--muted">
+              <Link to={`/campeonatos/${camp.id}/chaveamento`} className="btn btn--orange">
                 Chaveamento
               </Link>
             )}
             {showTabelaBtn && (
-              <Link to={`/campeonatos/${camp.id}/classificacao`} className="btn btn--muted">
+              <Link to={`/campeonatos/${camp.id}/classificacao`} className="btn btn--orange">
                 Tabela
               </Link>
             )}
-            <Link to={`/campeonatos`} className="btn btn--muted">Voltar</Link>
+            <button type="button" className="btn btn--muted" onClick={() => navigate(-1)}>
+              ← Voltar
+            </button>
           </div>
         </div>
 
         {/* Filtros */}
-        <div className="row" style={{ gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+        <div className="row mt-2" style={{ gap: 12, flexWrap: "wrap" }}>
           <div className="field">
             <label className="label">Estado</label>
             <select className="select" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
@@ -509,10 +511,10 @@ export default function CampeonatoPartidas() {
                     })();
 
                   return (
-                    <li key={p.id} className="list__item">
+                     <li key={p.id} className="list__item" style={{ alignItems: "flex-start" }}>
                       {/* Esquerda: times/placar e sub-infos */}
-                      <div className="list__left" style={{ minWidth: 0 }}>
-                        <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <div className="list__left" style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                        <div className="row" style={{ gap: 8, alignItems: "center", justifyContent: "flex-start", flexWrap: "wrap" }}>
                           <TeamIcon team={p.time_a} size={20} />
                           <span className="mono">{timeLabel(p, "a", isNarrow)}</span>
                           <strong className="mono">{p.encerrada ? (p.gols_time_a ?? 0) : "—"}</strong>
@@ -522,35 +524,49 @@ export default function CampeonatoPartidas() {
                           <TeamIcon team={p.time_b} size={20} />
                         </div>
 
-                        <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
-                          <div className="list__subtitle" style={{ marginTop: 4 }}>
-                            {!isNarrow && (
-                              <>
-                                {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
-                                {p.local ? ` · ${p.local}` : ""}
-                              </>
+                        {/* Desktop: data/hora + local + agregado/penaltis */}
+                        {!isNarrow && (
+                          <div className="list__subtitle" style={{ marginTop: 4, width: "100%" }}>
+                            {p.data_hora ? toLocalDateTimeLabel(p.data_hora) : "Data a definir"}
+                            {p.local ? ` · ${p.local}` : ""}
+                            {p.is_mata_mata && (
+                              <span className="text-muted" style={{ fontSize: 12, marginLeft: 6 }}>
+                                {camp?.ida_volta === true && p.perna === 2 && (() => {
+                                  const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
+                                  if (!ida) return null;
+                                  const idaLeft  = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
+                                  const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
+                                  const somaLeft  = idaLeft  + (p.gols_time_a || 0);
+                                  const somaRight = idaRight + (p.gols_time_b || 0);
+                                  return <> · Agregado: {somaLeft}-{somaRight}</>;
+                                })()}
+                                {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
+                                  (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
+                                  <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                                )}
+                              </span>
                             )}
                           </div>
+                        )}
 
-                          {p.is_mata_mata && (
-                            <div className="text-muted" style={{ fontSize: 12 }}>
-                              {camp?.ida_volta === true && p.perna === 2 && (() => {
-                                const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
-                                if (!ida) return null;
-                                // agregado respeitando a ordem visual (A à esquerda, B à direita)
-                                const idaLeft  = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
-                                const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
-                                const somaLeft  = idaLeft  + (p.gols_time_a || 0);
-                                const somaRight = idaRight + (p.gols_time_b || 0);
-                                return <>Agregado: {somaLeft}-{somaRight}</>;
-                              })()}
-                              {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
-                                (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
-                                <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                        {/* Mobile: apenas agregado/penaltis (sem data/hora/local) */}
+                        {isNarrow && p.is_mata_mata && (
+                          <div className="text-muted" style={{ fontSize: 12, width: "100%" }}>
+                            {camp?.ida_volta === true && p.perna === 2 && (() => {
+                              const ida = partidas.find((j) => j.chave_id === p.chave_id && j.perna === 1);
+                              if (!ida) return null;
+                              const idaLeft  = ida.time_a_id === p.time_a_id ? (ida.gols_time_a || 0) : (ida.gols_time_b || 0);
+                              const idaRight = ida.time_b_id === p.time_b_id ? (ida.gols_time_b || 0) : (ida.gols_time_a || 0);
+                              const somaLeft  = idaLeft  + (p.gols_time_a || 0);
+                              const somaRight = idaRight + (p.gols_time_b || 0);
+                              return <>Agregado: {somaLeft}-{somaRight}</>;
+                            })()}
+                            {(((camp?.ida_volta === true && p.perna === 2) || camp?.ida_volta === false) &&
+                              (p.penaltis_time_a != null && p.penaltis_time_b != null)) && (
+                              <> {" · "}Pênaltis: {p.penaltis_time_a}-{p.penaltis_time_b}</>
+                            )}
+                          </div>
+                        )}
 
                         {/* Edição inline */}
                         {editandoId === p.id && (
@@ -565,6 +581,7 @@ export default function CampeonatoPartidas() {
                                   <input
                                     className="input"
                                     type="text"
+                                    maxLength={40}
                                     value={formEdicao.local}
                                     onChange={(e) => setFormEdicao((f) => ({ ...f, local: e.target.value }))}
                                   />
@@ -584,8 +601,9 @@ export default function CampeonatoPartidas() {
                                     className="input mono"
                                     type="number"
                                     min="0"
+                                    max="99"
                                     value={formEdicao.gols_time_a}
-                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_a: e.target.value }))}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_a: e.target.value.slice(0,2) }))}
                                   />
                                 </div>
                                 <div className="field">
@@ -594,8 +612,9 @@ export default function CampeonatoPartidas() {
                                     className="input mono"
                                     type="number"
                                     min="0"
+                                    max="99"
                                     value={formEdicao.gols_time_b}
-                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_b: e.target.value }))}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, gols_time_b: e.target.value.slice(0,2) }))}
                                   />
                                 </div>
 
@@ -606,8 +625,9 @@ export default function CampeonatoPartidas() {
                                     className="input mono"
                                     type="number"
                                     min="0"
+                                    max="99"
                                     value={formEdicao.penaltis_time_a}
-                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_a: e.target.value }))}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_a: e.target.value.slice(0,2) }))}
                                   />
                                 </div>
                                 <div className="field">
@@ -616,8 +636,9 @@ export default function CampeonatoPartidas() {
                                     className="input mono"
                                     type="number"
                                     min="0"
+                                    max="99"
                                     value={formEdicao.penaltis_time_b}
-                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_b: e.target.value }))}
+                                    onChange={(e) => setFormEdicao((f) => ({ ...f, penaltis_time_b: e.target.value.slice(0,2) }))}
                                   />
                                 </div>
                               </div>
@@ -667,10 +688,16 @@ export default function CampeonatoPartidas() {
                               disabled: !canOpenPlacar || idaPendente,
                               onClick: () => navigate(`/partidas/${p.id}/placar`),
                             },
-                            { label: "Editar", variant: "muted", disabled: idaPendente, onClick: () => abrirEdicao(p) },
+                            {
+                              label: "Editar",
+                              variant: "muted",
+                              disabled: idaPendente,
+                              onClick: () => abrirEdicao(p),
+                            },
                           ]}
                         />
                       </div>
+
                     </li>
                   );
                 })}

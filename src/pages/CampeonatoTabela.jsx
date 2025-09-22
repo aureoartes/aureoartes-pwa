@@ -1,6 +1,8 @@
+// v1.2.1.1 - botão "Chaveamento" (laranja) condicional a existir mata-mata + "Partidas" em laranja
+// v1.2.1.0 - botão para chaveamento
 // v1.1.0 — Classificação do Campeonato — Autenticação Supabase + RLS (ownerId)
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";         // <- named export
 import TeamIcon from "../components/TeamIcon";
 import { useAuth } from "@/auth/AuthProvider"; // altere para "../auth/AuthProvider" se não usar alias "@"
@@ -28,9 +30,17 @@ function Ultimos5({ seq }) {
 export default function CampeonatoTabela() {
   const { id: campeonatoId } = useParams();
   const { ownerId, loading: authLoading } = useAuth(); // <<< novo: id do dono autenticado
+  const navigate = useNavigate();
+
+  const handleBack = () => {
+    // Se há histórico, volta; se não, cai no fallback seguro
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/campeonatos");
+  };
 
   const [camp, setCamp] = useState(null);
   const [rows, setRows] = useState([]);
+  const [hasKO, setHasKO] = useState(false); // <<< novo: existe mata-mata?
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -39,6 +49,7 @@ export default function CampeonatoTabela() {
     if (!ownerId) {                      // sem usuário => limpa e encerra
       setCamp(null);
       setRows([]);
+      setHasKO(false);
       setLoading(false);
       return;
     }
@@ -56,6 +67,16 @@ export default function CampeonatoTabela() {
           .single();
         if (eCamp) throw eCamp;
         setCamp(c || null);
+
+        // 1.1) Existe alguma partida de mata-mata?
+        // Usa head:true + count:exact para não trazer payload, só contagem
+        const { count: koCount, error: eKo } = await supabase
+          .from("partidas")
+          .select("id", { count: "exact", head: true })
+          .eq("campeonato_id", campeonatoId)
+          .eq("is_mata_mata", true);
+        if (eKo) throw eKo;
+        setHasKO((koCount ?? 0) > 0);
 
         // 2) Classificação via VIEW (filtrada por campeonato_id)
         const { data: cls, error: eCls } = await supabase
@@ -91,6 +112,7 @@ export default function CampeonatoTabela() {
         console.error("Erro ao carregar classificação:", err);
         setErrorMsg(err?.message || "Falha ao carregar classificação");
         setRows([]);
+        setHasKO(false);
       } finally {
         setLoading(false);
       }
@@ -159,8 +181,18 @@ export default function CampeonatoTabela() {
             </div>
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <Link to={`/campeonatos/${camp.id}/partidas`} className="btn btn--muted">Partidas</Link>
-            <Link to={`/campeonatos`} className="btn btn--muted">Voltar</Link>
+            {/* Botão "Chaveamento" laranja aparece apenas se houver mata-mata */}
+            {hasKO && (
+              <Link
+                to={`/campeonatos/${camp.id}/chaveamento`}
+                className="btn btn--primary"
+                title="Ver chaveamento de mata-mata"
+              >
+                Chaveamento
+              </Link>
+            )}
+            <Link to={`/campeonatos/${camp.id}/partidas`} className="btn btn--primary">Partidas</Link>
+            <button type="button" onClick={handleBack} className="btn btn--muted">← Voltar</button>
           </div>
         </div>
       </div>

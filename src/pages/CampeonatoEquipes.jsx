@@ -1,3 +1,4 @@
+// v1.2.0.0 - truncar subtitulo / ajustes header e botões
 // v1.1.0 — Campeonato > Equipes — Autenticação Supabase + RLS (ownerId)
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
@@ -329,7 +330,7 @@ export default function CampeonatoEquipes() {
   return (
     <div className="container">
       {/* Header */}
-      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+      <div className="card p-4 mb-3">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ margin: 0 }}>
@@ -341,16 +342,16 @@ export default function CampeonatoEquipes() {
           </div>
           <div className="row" style={{ gap: 8 }}>
             {showVerTabela && (
-              <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${campeonatoId}/classificacao`)}>
-                Ver tabela
+              <button className="btn btn--primary" onClick={() => navigate(`/campeonatos/${campeonatoId}/classificacao`)}>
+                Tabela
               </button>
             )}
             {showVerPartidas && (
-              <button className="btn btn--muted" onClick={() => navigate(`/campeonatos/${campeonatoId}/partidas`)}>
-                Ver partidas
+              <button className="btn btn--primary" onClick={() => navigate(`/campeonatos/${campeonatoId}/partidas`)}>
+                Partidas
               </button>
             )}
-            <Link to="/campeonatos" className="btn btn--muted">Voltar</Link>
+            <Link to="/campeonatos" className="btn btn--muted">← Voltar</Link>
           </div>
         </div>
         {campeonato && (
@@ -401,12 +402,13 @@ export default function CampeonatoEquipes() {
                       title={t.nome}
                     />
 
-                    <div>
+                    <div className="textwrap">
                       <div className="list__title">{t.nome}</div>
-                      <div className="list__subtitle">
+                      <div className="list__subtitle subtitle--mv">
                         {t.abreviacao || "—"} · {nomeCategoria(t.categoria_id, t.categoria)} · {nomeRegiao(t.regiao_id)}
                       </div>
                     </div>
+
                   </div>
                   <button
                     className="btn btn--orange"
@@ -471,12 +473,13 @@ export default function CampeonatoEquipes() {
                         size={22}
                         title={s.time?.nome}
                       />
-                      <div>
+                      <div className="textwrap">
                         <div className="list__title">{s.time?.nome || "Time"}</div>
-                        <div className="list__subtitle">
+                        <div className="list__subtitle subtitle--mv">
                           {s.time?.abreviacao || "—"} · {nomeCategoria(s.time?.categoria_id, s.time?.categoria)} · {nomeRegiao(s.time?.regiao_id)}
                         </div>
                       </div>
+
                     </div>
                     <button
                       className="btn btn--red"
