@@ -528,7 +528,7 @@ export default function Placar() {
       {/* Topo */}
       <div className="placar-header card">
         <span className="placar-header__title">{isAvulso ? "Amistoso" : camp?.nome || "Campeonato"}</span>
-        {wakeLockActive && <span className="badge" style={{ marginLeft: 8 }}>Tela ativa</span>}
+        {/*{wakeLockActive && <span className="badge" style={{ marginLeft: 8 }}>Tela ativa</span>}*/}
         {isAvulso && (
           <button
             className="placar-header__edit btn"

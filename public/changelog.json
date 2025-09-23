@@ -3,7 +3,7 @@
     "project": "AureoArtes PWA",
     "repoUrl": "https://github.com/aureoartes/aureoartes-pwa",
     "siteUrl": "https://app.aureoartes.com.br",
-    "updatedAt": "2025-09-21"
+    "updatedAt": "2025-09-22"
   },
   "versions": [
     {
@@ -36,7 +36,8 @@
       "status": "Unreleased",
       "date": "2025-09-26",
       "highlights": [
-        "Placar: layout mobile horizontal"
+        "Placar: layout mobile horizontal",
+        "Home: StoreBanner dinâmico"
       ]
     },
     {
@@ -45,7 +46,6 @@
       "date": "2025-09-21",
       "highlights": [
         "TimeDetalhes: guia Partidas (Últimas 5 / Próximas 5)",
-        "Home: StoreBanner dinâmico (JSON externo)",
         "Preview ao vivo de cores no formulário de Time",
         "Screen Wake Lock no placar",
         "Instalar app (beforeinstallprompt) + banner iOS (Safari)",
