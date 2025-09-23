@@ -34,15 +34,15 @@
     {
       "version": "v1.2.2",
       "status": "Unreleased",
-      "date": null,
+      "date": "2025-09-26",
       "highlights": [
         "Placar: layout mobile horizontal"
       ]
     },
     {
       "version": "v1.2.1",
-      "status": "Unreleased",
-      "date": "2025-09-26",
+      "status": "Released",
+      "date": "2025-09-21",
       "highlights": [
         "TimeDetalhes: guia Partidas (Últimas 5 / Próximas 5)",
         "Home: StoreBanner dinâmico (JSON externo)",
