@@ -363,8 +363,7 @@ button, .btn, .navbar__link { -webkit-tap-highlight-color: transparent; }
 }
 .placar-header__edit {
   position: absolute;
-  right: 10px; top: 50%;
-  transform: translateY(-50%);
+  right: 10px;
   background: #fff;
   color: var(--brand-orange);
   font-weight: 800;
@@ -412,3 +411,33 @@ button, .btn, .navbar__link { -webkit-tap-highlight-color: transparent; }
 .placar-toast--top { bottom: auto; top: 14px; }
 
 .btn--danger { background: #d93025; color: #fff; }
+
+/* QuickAdd ancorado ao botão */
+.has-quickadd { position: relative; }
+.quickadd-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+}
+
+/* Em telas pequenas, pode ser melhor abrir à esquerda */
+@media (max-width: 640px){
+  .quickadd-pop { left: 0; right: auto; }
+}
+
+@media (max-width: 640px) {
+  .store-banner {
+    padding: 16px !important;
+  }
+  .store-banner__grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  .store-banner__text h3 {
+    font-size: 22px !important;
+  }
+  .store-banner__text p {
+    font-size: 15px !important;
+  }
+}

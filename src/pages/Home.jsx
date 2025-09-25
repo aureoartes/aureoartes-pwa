@@ -311,9 +311,39 @@ export default function Home() {
       {/* LOJA */}
       <StoreBanner
         items={[
-          { key: "oferta1", title: "Times artesanais", subtitle: "Coleções clássicas e personalizadas", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)", border: "#ffd6ad", badge: "Novidades" },
-          { key: "oferta2", title: "Acessórios", subtitle: "Palhetas, dadinhos e goleiros", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)", border: "#ffddb8" },
-          { key: "oferta3", title: "Promoções da semana", subtitle: "Ofertas por tempo limitado", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)", border: "#ffcfa6", badge: "Oferta" },
+          {
+            key: "oferta1",
+            title: "Times Vidrilha 45 mm",
+            subtitle: "Coleções clássicas e personalizadas",
+            href: "https://www.aureoartes.com.br/vidrilha-45mm-selecoes",
+            imageUrl: "/img/store/oferta1-vidrilha.webp",
+            bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
+            border: "#ffd6ad",
+            badge: "Artesanal",
+            alt: "Linha Vidrilha 45 mm — times artesanais"
+          },
+          {
+            key: "oferta2",
+            title: "Acrílico Cristal",
+            subtitle: "Robusto, do clássico ao contemporâneo",
+            href: "https://www.aureoartes.com.br/times-de-acrilico-cristal",
+            imageUrl: "/img/store/oferta2-acrilico.webp",
+            bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)",
+            border: "#ffddb8",
+            badge: "Feito à mão",
+            alt: "Times em acrílico cristal"
+          },
+          {
+            key: "oferta3",
+            title: "Futebol de Botão",
+            subtitle: "Aprenda a jogar",
+            href: "https://www.aureoartes.com.br/pagina/como-jogar.html",
+            imageUrl: "/img/store/oferta3-como-jogar.webp",
+            bg: "linear-gradient(135deg,#FFE0C2,#FFF2E5)",
+            border: "#ffcfa6",
+            badge: "Oferta",
+            alt: "Guia — como jogar futebol de botão"
+          }
         ]}
         intervalMs={6000}
       />

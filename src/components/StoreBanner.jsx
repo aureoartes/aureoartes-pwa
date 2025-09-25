@@ -1,183 +1,247 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// src/components/StoreBanner.jsx
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 /**
- * StoreBanner.jsx — Banner dinâmico para a Loja AureoArtes
- *
- * Recursos
- * - Rotação automática (pausa ao focar/hover)
- * - Indicadores (bolinhas) e setas
- * - Suporte a imagem opcional, badge e cores por item
- * - Dissolve/slide suave
- * - A11y: rolagem via teclado e rótulos ARIA
- *
- * Uso:
- * <StoreBanner
- *   items={[
- *     { key: "oferta1", title: "Times artesanais", subtitle: "Coleções clássicas e personalizadas", href: "https://www.aureoartes.com.br/", imageUrl: "/assets/hero1.png", bg: "linear-gradient(135deg,#FFE6CC,#FFF2E5)", border: "#ffd6ad", badge: "Novidades" },
- *     { key: "oferta2", title: "Acessórios", subtitle: "Palhetas, dadinhos e goleiros", href: "https://www.aureoartes.com.br/", bg: "linear-gradient(135deg,#FFF5E8,#FFE4CC)", border: "#ffddb8" },
- *   ]}
- *   intervalMs={6000}
- * />
+ * items: [{ key, title, subtitle, href, imageUrl, bg, border, badge, alt }]
+ * intervalMs: autoplay interval (ms)
  */
-
 export default function StoreBanner({ items = [], intervalMs = 6000 }) {
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
   const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const wrap = (n) => (n + items.length) % items.length;
   const timerRef = useRef(null);
-  const rootRef = useRef(null);
+  const hoveringRef = useRef(false);
 
-  const current = items[idx] || {};
+  const go = (n) => setIdx((prev) => (prev + n + safeItems.length) % safeItems.length);
+  const goTo = (n) => setIdx((n + safeItems.length) % safeItems.length);
 
-  // Auto rotação
+  // autoplay com pausa no hover
   useEffect(() => {
-    if (!items.length || paused) return;
-    timerRef.current = setInterval(() => setIdx((i) => wrap(i + 1)), intervalMs);
+    if (!safeItems.length) return;
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      if (!hoveringRef.current) go(1);
+    }, Math.max(2500, intervalMs || 0));
     return () => clearInterval(timerRef.current);
-  }, [items.length, paused, intervalMs]);
+  }, [safeItems.length, intervalMs]);
 
-  // Teclado
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!rootRef.current || !rootRef.current.contains(document.activeElement)) return;
-      if (e.key === "ArrowRight") { e.preventDefault(); setIdx((i) => wrap(i + 1)); }
-      if (e.key === "ArrowLeft")  { e.preventDefault(); setIdx((i) => wrap(i - 1)); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // Swipe (mobile)
-  useEffect(() => {
-    let startX = 0; let dx = 0;
-    const el = rootRef.current;
-    if (!el) return;
-    const onStart = (e) => { startX = e.touches?.[0]?.clientX ?? 0; dx = 0; };
-    const onMove  = (e) => { dx = (e.touches?.[0]?.clientX ?? 0) - startX; };
-    const onEnd   = () => { if (Math.abs(dx) > 40) setIdx((i) => wrap(i + (dx < 0 ? 1 : -1))); };
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: true });
-    el.addEventListener("touchend", onEnd, { passive: true });
-    return () => { el.removeEventListener("touchstart", onStart); el.removeEventListener("touchmove", onMove); el.removeEventListener("touchend", onEnd); };
-  }, [items.length]);
-
-  if (!items.length) return null;
+  if (!safeItems.length) return null;
+  const current = safeItems[idx];
 
   return (
-    <section className="container" style={{ padding: "8px 16px 36px" }}>
+    <section className="container" style={{ padding: "18px 16px 6px" }}>
       <div
-        ref={rootRef}
-        role="region"
-        aria-roledescription="carousel"
-        aria-label="Destaques da Loja AureoArtes"
-        tabIndex={0}
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
-        style={{ position: "relative" }}
+        className="store-banner"
+        style={{
+          position: "relative",
+          border: `1px solid ${current.border || "#f3e0cf"}`,
+          borderRadius: 20,
+          padding: 20,
+          background: current.bg || "linear-gradient(135deg,#FFF5E8,#FFE8D8)",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+          transition: "background 300ms ease",
+          overflow: "hidden",
+        }}
+        onMouseEnter={() => (hoveringRef.current = true)}
+        onMouseLeave={() => (hoveringRef.current = false)}
       >
-        {/* Slide atual */}
-        <article
-          key={current.key || idx}
+        {/* grid principal */}
+        <div
+          className="store-banner__grid"
           style={{
-            transition: "opacity 220ms ease, transform 220ms ease",
-            opacity: 1,
-            transform: "translateZ(0)",
+            display: "grid",
+            gridTemplateColumns: "1.1fr 0.9fr",
+            gap: 24,
+            alignItems: "center",
           }}
         >
-          <a
-            href={current.href}
-            target="_blank"
-            rel="noreferrer"
-            className="card"
+          {/* bloco de texto */}
+          <div className="store-banner__text" style={{ minWidth: 0 }}>
+            {/* badge */}
+            {current.badge && (
+              <span
+                className="chip"
+                style={{
+                  display: "inline-block",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  background: "#FF6600",
+                  color: "#fff",
+                  marginBottom: 10,
+                }}
+              >
+                {current.badge}
+              </span>
+            )}
+
+            {/* título */}
+            <h3
+              style={{
+                margin: 0,
+                marginBottom: 6,
+                fontSize: 26,
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: "#2c1a11",
+                letterSpacing: 0.1,
+              }}
+              title={current.title}
+            >
+              {current.title}
+            </h3>
+
+            {/* subtítulo */}
+            {current.subtitle && (
+              <p
+                style={{
+                  margin: 0,
+                  marginBottom: 14,
+                  fontSize: 16,
+                  color: "var(--muted)",
+                }}
+                title={current.subtitle}
+              >
+                {current.subtitle}
+              </p>
+            )}
+
+            {/* CTA */}
+            <Link
+              to={current.href}
+              className="btn btn--orange"
+              style={{ fontWeight: 800, padding: "10px 16px", display: "inline-flex" }}
+            >
+              Visitar loja
+            </Link>
+          </div>
+
+          {/* bloco de imagem */}
+          <div
+            className="store-banner__image"
             style={{
-              display: "block",
-              padding: 20,
-              textDecoration: "none",
-              color: "inherit",
-              background: current.bg || "linear-gradient(135deg,#FFE6CC,#FFF2E5)",
-              border: `1px solid ${current.border || "#ffd6ad"}`,
-              overflow: "hidden",
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.55)",
+              padding: 6,
+              boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.03)",
             }}
           >
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-              <div style={{ minWidth: 0 }}>
-                {current.badge && (
-                  <span style={{
-                    display: "inline-block",
-                    fontSize: 12,
-                    fontWeight: 800,
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    background: "#ff6a00",
-                    color: "#fff",
-                    marginBottom: 8,
-                  }}>{current.badge}</span>
-                )}
-                <h3 style={{ fontWeight: 900, fontSize: 20, margin: 0 }}>{current.title}</h3>
-                {current.subtitle && (
-                  <p style={{ fontSize: 13, color: "var(--muted)", margin: "6px 0 0" }}>{current.subtitle}</p>
-                )}
-              </div>
-
-              {current.imageUrl && (
+            <div
+              style={{
+                position: "relative",
+                borderRadius: 12,
+                overflow: "hidden",
+                width: "100%",
+                aspectRatio: "16 / 6", // 1200 x 450 recomendado
+                background: "#fff",
+              }}
+            >
+              {/* imagem responsiva */}
+              {current.imageUrl ? (
                 <img
                   src={current.imageUrl}
-                  alt="Destaque Loja AureoArtes"
+                  alt={current.alt || current.title}
                   style={{
-                    height: 88,
-                    width: "auto",
-                    objectFit: "contain",
-                    borderRadius: 12,
-                    boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
                   }}
+                  loading="lazy"
                 />
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--muted)",
+                    fontSize: 14,
+                  }}
+                >
+                  (adicione a imagem do banner)
+                </div>
               )}
-
-              {/* CTA visual */}
-              <div className="btn btn--orange" aria-hidden>Visitar loja</div>
             </div>
-          </a>
-        </article>
-
-        {/* Controles */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-          <div style={{ display: "flex", gap: 6 }}>
-            {items.map((it, i) => (
-              <button
-                key={it.key || i}
-                aria-label={`Ir para destaque ${i + 1}`}
-                onClick={() => setIdx(i)}
-                style={{
-                  width: 8, height: 8, borderRadius: 999,
-                  background: i === idx ? "#ff6a00" : "#ffd6ad",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              />
-            ))}
           </div>
+        </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
+        {/* setas (sobre o card) */}
+        <button
+          aria-label="Anterior"
+          onClick={() => go(-1)}
+          className="btn"
+          style={arrowStyle("left")}
+        >
+          ‹
+        </button>
+        <button
+          aria-label="Próximo"
+          onClick={() => go(1)}
+          className="btn"
+          style={arrowStyle("right")}
+        >
+          ›
+        </button>
+
+        {/* dots */}
+        <div
+          className="store-banner__dots"
+          style={{
+            position: "absolute",
+            left: 16,
+            bottom: 10,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          {safeItems.map((it, i) => (
             <button
-              aria-label="Anterior"
-              onClick={() => setIdx((i) => wrap(i - 1))}
-              className="btn btn--muted"
-              style={{ padding: "6px 10px" }}
-            >
-              ‹
-            </button>
-            <button
-              aria-label="Próximo"
-              onClick={() => setIdx((i) => wrap(i + 1))}
-              className="btn btn--muted"
-              style={{ padding: "6px 10px" }}
-            >
-              ›
-            </button>
-          </div>
+              key={it.key || i}
+              aria-label={`Ir para ${i + 1}`}
+              onClick={() => goTo(i)}
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: "50%",
+                border: "none",
+                background: i === idx ? "#FF6600" : "#ffd6ad",
+                opacity: i === idx ? 1 : 0.9,
+                cursor: "pointer",
+                transition: "transform 120ms ease",
+              }}
+            />
+          ))}
         </div>
       </div>
     </section>
   );
+}
+
+function arrowStyle(side) {
+  const base = {
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
+    borderRadius: 999,
+    width: 36,
+    height: 36,
+    display: "grid",
+    placeItems: "center",
+    fontSize: 22,
+    fontWeight: 900,
+    color: "#FF6600",
+    background: "rgba(255,255,255,0.85)",
+    border: "1px solid #ffd6ad",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+    cursor: "pointer",
+    transition: "background 120ms ease, transform 120ms ease",
+  };
+  return {
+    ...base,
+    [side === "left" ? "left" : "right"]: 10,
+  };
 }

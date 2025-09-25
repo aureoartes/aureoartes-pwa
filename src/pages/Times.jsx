@@ -1,4 +1,4 @@
-// v1.2.0.10 — Ajuste nos cards da lista: badge mais próximo ao nome (reduzir espaçamento) — 2025-09-22
+// v1.2.2.0 - ajuste no botão nova região
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -6,9 +6,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/auth/AuthProvider";
 import { getContrastShadow } from "../utils/colors";
 import ColorSwatchSelect from "../components/ColorSwatchSelect";
-import QuickAddInline from "../components/QuickAddInline";
 
 export default function Times() {
+  const [novaRegiao, setNovaRegiao] = useState("");
   function TeamPreview({ nome, abreviacao, escudoUrl, c1, c2, cd, categoriaDesc }) {
     return (
       <div className="card team-card team-preview">
@@ -332,7 +332,7 @@ export default function Times() {
                 <div className="field">
                   <label className="label">Região</label>
                   <div>
-                    <div className="row">
+                    <div className="row has-quickadd">
                       <select
                         className="select"
                         value={regiaoId}
@@ -343,6 +343,7 @@ export default function Times() {
                           <option key={r.id} value={r.id}>{r.descricao}</option>
                         ))}
                       </select>
+
                       <button
                         type="button"
                         className="btn btn--sm btn--orange"
@@ -352,17 +353,44 @@ export default function Times() {
                       >
                         +
                       </button>
+
+                      {quickAddOpen && (
+                        <div className="quickadd-pop">
+                          <div className="card p-only-3" style={{ width: 240 }}>
+                            <div className="label" style={{ marginBottom: 6 }}>Nova região</div>
+                            <input
+                              className="input"
+                              placeholder="Ex.: Sudeste"
+                              value={novaRegiao}
+                              onChange={(e) => setNovaRegiao(e.target.value.slice(0, 30))}
+                              maxLength={30}
+                            />
+                            <div className="row-actions mt-3">
+                              <button
+                                type="button"
+                                className="btn btn--orange"
+                                disabled={!novaRegiao.trim() || !ownerId}
+                                onClick={async () => {
+                                  await createRegiao(novaRegiao.trim());
+                                  setNovaRegiao("");
+                                  setQuickAddOpen(false);
+                                }}
+                              >
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--muted"
+                                onClick={() => { setQuickAddOpen(false); setNovaRegiao(""); }}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    {quickAddOpen && (
-                      <QuickAddInline
-                        label="Nova região"
-                        placeholder="Ex.: Sudeste"
-                        align="left"
-                        onCreate={(descricao) => createRegiao(descricao)}
-                        onClose={() => setQuickAddOpen(false)}
-                      />
-                    )}
                   </div>
                 </div>
 

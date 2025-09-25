@@ -1,17 +1,15 @@
-// v1.2.0.2
-// src/pages/Placar.jsx 
-// Otimizações + Screen Wake Lock
-// - Menos styles inline (centralizados em `ui`)
-// - Lógica de fases/encerramento deduplicada em helpers
-// - Responsividade via matchMedia (orientation)
-// - Timer com useCallback e limpeza robusta
-// - Pequenos fixes em pênaltis e encerramento
-// - Screen Wake Lock: mantém tela ativa enquanto Placar estiver aberto
+// v1.2.2.19
+// src/pages/Placar.jsx
+// Navbar próprio fixo no Placar, cor laranja igual ao global, texto branco e botão voltar à direita
+// Editor Avulso com seletor de cores via overlay
+// - Bloqueia encerramento durante pênaltis enquanto não finalizado (avulso e vinculado)
+// - Botão "Encerrar Partida" desabilita em PEN até penFinished === true
+// - Mensagem clara ao tentar encerrar com pênaltis em andamento
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";         // <- named export
-import { useAuth } from "@/auth/AuthProvider";           // ajuste: auth
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/auth/AuthProvider";
 import TeamIcon from "../components/TeamIcon";
 import { getContrastShadow } from "../utils/colors";
 import logo from "../assets/logo_aureoartes.png";
@@ -34,8 +32,8 @@ export default function Placar() {
   // ===== Entities =====
   const [partida, setPartida] = useState(null);
   const [camp, setCamp] = useState(null);
-  const [timeA, setTimeA] = useState({ id: null, nome: "Time A", abrev: "", escudo_url: null });
-  const [timeB, setTimeB] = useState({ id: null, nome: "Time B", abrev: "", escudo_url: null });
+  const [timeA, setTimeA] = useState({ id: null, nome: "Time A", abrev: "TMA", escudo_url: null });
+  const [timeB, setTimeB] = useState({ id: null, nome: "Time B", abrev: "TMB", escudo_url: null });
 
   // ===== Score & Clock =====
   const [golsA, setGolsA] = useState(0);
@@ -84,11 +82,11 @@ export default function Placar() {
   }, []);
 
   // ===== Avulso: cores e nomes livres =====
-  const [corA1, setCorA1] = useState("#ff7a00");
+  const [corA1, setCorA1] = useState("#FB8C00");
   const [corA2, setCorA2] = useState("#ffffff");
   const [corADetalhe, setCorADetalhe] = useState("#000000");
   const [corB1, setCorB1] = useState("#ffffff");
-  const [corB2, setCorB2] = useState("#ff7a00");
+  const [corB2, setCorB2] = useState("#FB8C00");
   const [corBDetalhe, setCorBDetalhe] = useState("#000000");
   const [showAvulsoEdit, setShowAvulsoEdit] = useState(false);
   const [desempate, setDesempate] = useState("amistoso"); // amistoso | prorrogacao | penaltis
@@ -111,6 +109,137 @@ export default function Placar() {
   };
   const withColors = (team, cor1, cor2, cor_detalhe) => ({ ...team, cor1, cor2, cor_detalhe });
 
+  // ===== Sound FX =====
+  const [soundOn, setSoundOn] = useState(() => (localStorage.getItem("placar_sound_on") ?? "1") === "1");
+  const [crowdOn, setCrowdOn] = useState(() => (localStorage.getItem("placar_crowd_on") ?? "1") === "1");
+  const [soundVol, setSoundVol] = useState(() => Number(localStorage.getItem("placar_sound_vol") ?? 0.6));
+  const audioRef = useRef({ ctx: null, unlocked: false, pack: { ready:false } });
+  const crowdRef = useRef({ src: null, gain: null, playing: false });
+
+  const ensureCtx = useCallback(() => {
+    if (!audioRef.current.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioRef.current.ctx = new Ctx();
+    }
+    return audioRef.current.ctx;
+  }, []);
+
+  const loadBuffer = useCallback(async (url) => {
+    try {
+      const ctx = ensureCtx(); if (!ctx) return null;
+      const res = await fetch(url, { cache: "force-cache" });
+      if (!res.ok) return null;
+      const arr = await res.arrayBuffer();
+      return await ctx.decodeAudioData(arr);
+    } catch { return null; }
+  }, [ensureCtx]);
+
+  const tryLoadAdvancedPack = useCallback(async () => {
+    const base = "/sfx";
+    const tryExts = async (name) => {
+      const mp3 = await loadBuffer(`${base}/${name}.mp3`);
+      if (mp3) return mp3;
+      return await loadBuffer(`${base}/${name}.wav`);
+    };
+    const [whStart, whEnd, whGoal, crowdLoop, crowdCheer] = await Promise.all([
+      tryExts("whistle_start"),
+      tryExts("whistle_end"),
+      tryExts("whistle_goal"),
+      tryExts("crowd_loop"),
+      tryExts("crowd_cheer"),
+    ]);
+    audioRef.current.pack = { ready: !!(whStart||whEnd||whGoal||crowdLoop||crowdCheer), whStart, whEnd, whGoal, crowdLoop, crowdCheer };
+  }, [loadBuffer]);
+
+  useEffect(() => {
+    const unlock = async () => {
+      const ctx = ensureCtx(); if (!ctx) return;
+      if (ctx.state === "suspended") await ctx.resume();
+      audioRef.current.unlocked = true;
+      tryLoadAdvancedPack();
+    };
+    document.addEventListener("pointerdown", unlock, { once: true });
+    return () => document.removeEventListener("pointerdown", unlock);
+  }, [ensureCtx, tryLoadAdvancedPack]);
+
+  useEffect(() => { localStorage.setItem("placar_sound_on", soundOn ? "1" : "0"); }, [soundOn]);
+  useEffect(() => { localStorage.setItem("placar_crowd_on", crowdOn ? "1" : "0"); }, [crowdOn]);
+  useEffect(() => { localStorage.setItem("placar_sound_vol", String(soundVol)); }, [soundVol]);
+
+  const playSimple = useCallback((freq = 880, dur = 0.12, type = "sine", vol = 0.25) => {
+    if (!soundOn) return; // respeita toggle de Sons de apito
+    const ctx = ensureCtx(); if (!ctx) return;
+    const t0 = ctx.currentTime + 0.01;
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, t0);
+    const g = Math.max(0, Math.min(1, vol * soundVol));
+    gain.gain.setValueAtTime(g || 0.0001, t0);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.001, g), t0 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.stop(t0 + dur + 0.02);
+  }, [ensureCtx, soundVol, soundOn]);
+
+  const playBuffer = useCallback((buf, vol = 0.3) => {
+    const ctx = ensureCtx(); if (!ctx || !buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf; const g = ctx.createGain();
+    g.gain.value = Math.max(0, Math.min(1, vol * soundVol));
+    src.connect(g).connect(ctx.destination); src.start();
+  }, [ensureCtx, soundVol]);
+
+  const sfxClick = useCallback(() => playSimple(820, 0.06, "square", 0.18), [playSimple]);
+  const sfxStartSimple = useCallback(() => { playSimple(660, 0.08, "triangle", 0.22); playSimple(990, 0.12, "triangle", 0.18); }, [playSimple]);
+  const sfxEndSimple = useCallback(() => { playSimple(740, 0.10, "sawtooth", 0.26); setTimeout(() => playSimple(880, 0.14, "sawtooth", 0.26), 80); }, [playSimple]);
+  const sfxFinalSimple = useCallback(() => { playSimple(523, 0.1, "triangle", 0.24); setTimeout(() => playSimple(659, 0.12, "triangle", 0.26), 100); setTimeout(() => playSimple(784, 0.16, "triangle", 0.28), 220); }, [playSimple]);
+  const sfxGoalSimple = useCallback(() => { playSimple(392, 0.08, "square", 0.26); setTimeout(() => playSimple(523, 0.1, "square", 0.28), 60); setTimeout(() => playSimple(659, 0.12, "square", 0.30), 140); navigator.vibrate?.(20); }, [playSimple]);
+
+  const sfxWhistleStart = useCallback(() => {
+    if (!soundOn) return; const p = audioRef.current.pack;
+    if (p.ready && p.whStart) playBuffer(p.whStart, 0.7); else sfxStartSimple();
+  }, [playBuffer, sfxStartSimple, soundOn]);
+  const sfxWhistleEnd = useCallback(() => {
+    if (!soundOn) return; const p = audioRef.current.pack;
+    if (p.ready && p.whEnd) playBuffer(p.whEnd, 0.7); else sfxEndSimple();
+  }, [playBuffer, sfxEndSimple, soundOn]);
+  const sfxWhistleGoal = useCallback(() => {
+    if (!soundOn) return; const p = audioRef.current.pack;
+    if (p.ready && p.whGoal) playBuffer(p.whGoal, 0.75); else sfxGoalSimple();
+  }, [playBuffer, sfxGoalSimple, soundOn]);
+  const sfxCrowdCheer = useCallback(() => {
+    const p = audioRef.current.pack; if (!crowdOn) return;
+    if (p.ready && p.crowdCheer) playBuffer(p.crowdCheer, 0.9);
+  }, [playBuffer, crowdOn]);
+
+  const ensureCrowdLoop = useCallback((shouldPlay) => {
+    const ctx = ensureCtx(); if (!ctx) return;
+    if (!crowdOn) {
+      if (crowdRef.current.src) { try { crowdRef.current.src.stop(); } catch {}
+      crowdRef.current = { src: null, gain: null, playing: false }; }
+      return;
+    }
+    const p = audioRef.current.pack; const buf = p.crowdLoop;
+    if (!buf || !shouldPlay) {
+      if (crowdRef.current.src) { try { crowdRef.current.src.stop(); } catch {} }
+      crowdRef.current = { src: null, gain: null, playing: false };
+      return;
+    }
+    if (crowdRef.current.playing) return;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const g = ctx.createGain(); g.gain.value = 0.25 * soundVol;
+    src.connect(g).connect(ctx.destination); src.start();
+    crowdRef.current = { src, gain: g, playing: true };
+  }, [ensureCtx, crowdOn, soundVol]);
+
+  // ===== Crowd loop reactivity & cleanup =====
+  useEffect(() => {
+    const ativo = rodando && !encerrada && ["1T","2T","PR1","PR2"].includes(fase);
+    ensureCrowdLoop(ativo);
+  }, [fase, rodando, encerrada, ensureCrowdLoop]);
+  useEffect(() => () => { ensureCrowdLoop(false); }, [ensureCrowdLoop]);
+
   // ===== Helpers Regras =====
   const empateJogo = () => golsA === golsB;
   const isJogoUnico = useMemo(() => (isMataMata && (!camp?.ida_volta || camp?.ida_volta === 0 || camp?.ida_volta === false || camp?.ida_volta === "false")), [isMataMata, camp]);
@@ -121,9 +250,7 @@ export default function Placar() {
     const idaGB = Number(ida?.gols_time_b ?? 0);
     const idaTA = ida?.time_a_id ?? ida?.id_time_a ?? ida?.clube_a_id;
     const idaTB = ida?.time_b_id ?? ida?.id_time_b ?? ida?.clube_b_id;
-    const volTA = timeA?.id;
-    const volTB = timeB?.id;
-
+    const volTA = timeA?.id; const volTB = timeB?.id;
     if (idaTA && idaTB && volTA && volTB) {
       const idaForVolA = (idaTA === volTA) ? idaGA : (idaTB === volTA) ? idaGB : idaGA;
       const idaForVolB = (idaTA === volTB) ? idaGA : (idaTB === volTB) ? idaGB : idaGB;
@@ -139,6 +266,7 @@ export default function Placar() {
   const getDurProrroCamp = () => Number(camp?.duracao_prorrogacao_min ?? camp?.duracao_prorrogacao) || durProrro || 5;
   const getQtdPenCamp = () => Number(camp?.qtd_penaltis ?? camp?.penaltis_regulares) || qtdPen || 5;
 
+  // ===== Helpers Regras =====
   const enterPenaltis = useCallback((regulares = getQtdPenCamp()) => {
     setQtdPen(regulares);
     setFase("PEN");
@@ -147,28 +275,48 @@ export default function Placar() {
     setPenTurn("A");
     setPenAlt(false);
     setPenFinished(false);
-  }, [setFase]);
+  }, [getQtdPenCamp]);
 
-  const startProrrogacao = useCallback(() => {
+  const startProrrogacao = useCallback(async () => {
     const prDur = Math.max(1, Math.round(getDurProrroCamp() * 60));
     setFase("PR1");
     setSegRestantes(prDur);
     setRodando(false);
     if (!isAvulso && partidaId) {
-      // marca prorrogação no banco sem bloquear UI
-      supabase.from("partidas").update({ prorrogacao: true }).eq("id", partidaId).catch(() => {});
+      try {
+        await supabase.from("partidas").update({ prorrogacao: true }).eq("id", partidaId);
+      } catch (e) {}
     }
-  }, [partidaId, isAvulso]);
+  }, [getDurProrroCamp, isAvulso, partidaId]);
 
-  const setFaseComDuracao = useCallback((novaFase) => {
-    setFase(novaFase);
-    const minutos = (novaFase === "PR1" || novaFase === "PR2") ? getDurProrroCamp() : getDurTempoCamp();
-    setSegRestantes(Math.max(1, Math.round(minutos * 60)));
-    if (novaFase === "PEN") enterPenaltis(getQtdPenCamp());
+  const setFaseComDuracao = useCallback((novaFase, { silentStart = false } = {}) => {
+    // 1) Se PR1 em jogo vinculado, marca prorrogação no banco
     if (novaFase === "PR1" && !isAvulso && partidaId) {
-      supabase.from("partidas").update({ prorrogacao: true }).eq("id", partidaId).catch(() => {});
+      (async () => {
+        try {
+          await supabase.from("partidas").update({ prorrogacao: true }).eq("id", partidaId);
+        } catch (e) {}
+      })();
     }
-  }, [enterPenaltis, getDurProrroCamp, getDurTempoCamp, getQtdPenCamp, isAvulso, partidaId]);
+
+    // 2) Calcula a nova duração do período
+    const secs =
+      (novaFase === "1T" || novaFase === "2T")
+        ? getDurTempoCamp() * 60
+        : (novaFase === "PR1" || novaFase === "PR2")
+          ? getDurProrroCamp() * 60
+          : 0;
+
+    // 3) Atualiza o estado para a nova fase, zera o timer e para o relógio
+    setFase(novaFase);
+    setSegRestantes(secs);
+    setRodando(false);
+
+    // 4) Toca apito de início do novo período quando aplicável
+    if (!silentStart && (novaFase === "2T" || novaFase === "PR2")) {
+      sfxWhistleStart();
+    }
+  }, [getDurTempoCamp, getDurProrroCamp, isAvulso, partidaId, sfxWhistleStart]);
 
   const fmt = (t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 
@@ -179,35 +327,35 @@ export default function Placar() {
     if (fase === "PEN") return penFinished;
     if (isMataMata) {
       if (isJogoUnico) {
-        if (golsA === golsB) return false; // jogo único não encerra empatado
+        if (golsA === golsB) return false;
       } else if (perna === 2) {
+        // Se a ida ainda não foi carregada (estado inicial), não bloqueie encerrar
+        if (!ida && chaveId) return true;
         const agg = placarAgregado();
-        if (agg.a === agg.b) return false; // volta com agregado empatado
+        if (agg.a === agg.b) return false;
       }
-      if (fase === "PR1") return false; // nunca encerrar manual na PR1
+      if (fase === "PR1") return false;
       if (fase === "PR2" && perna === 2) {
+        if (!ida && chaveId) return true;
         const agg2 = placarAgregado();
         if (agg2.a === agg2.b) return false;
       }
     }
     return true;
-  }, [encerrada, fase, isMataMata, isJogoUnico, golsA, golsB, penFinished, perna]);
+  }, [encerrada, fase, isMataMata, isJogoUnico, golsA, golsB, penFinished, perna, ida, chaveId]);
 
   useEffect(() => {
     try { setCanEnd(canEncerrarPartida()); } catch { setCanEnd(true); }
-  }, [encerrada, fase, isMataMata, penFinished, golsA, golsB, penA, penB, penAMiss, penBMiss, perna, camp, canEncerrarPartida]);
+  }, [encerrada, fase, isMataMata, penFinished, golsA, golsB, penA, penB, penAMiss, penBMiss, perna, camp, ida, chaveId, canEncerrarPartida]);
 
   // ===== Carregamento =====
   useEffect(() => {
-    if (!isAvulso && authLoading) return; // aguarda auth
+    if (!isAvulso && authLoading) return;
     if (isAvulso) {
-      // Reset avulso
       const tempoMin = 10;
       setGolsA(0); setGolsB(0); resetPenalties();
-      setTimeA({ id: null, nome: "Time A", abrev: "", escudo_url: null });
-      setTimeB({ id: null, nome: "Time B", abrev: "", escudo_url: null });
-      setCorA1("#ff7a00"); setCorA2("#ffffff"); setCorADetalhe("#000000");
-      setCorB1("#ff7a00"); setCorB2("#ffffff"); setCorBDetalhe("#000000");
+      setCorA1("#FB8C00"); setCorA2("#ffffff"); setCorADetalhe("#000000");
+      setCorB1("#FB8C00"); setCorB2("#ffffff"); setCorBDetalhe("#000000");
       setDurTempo(tempoMin); setUsaProrrogacao(false); setDurProrro(5); setQtdPen(5);
       setEncerrada(false); setFase("1T"); setSegRestantes(tempoMin * 60); setRodando(false);
       setShowAvulsoEdit(false);
@@ -226,9 +374,7 @@ export default function Placar() {
       setCamp(c);
 
       const tempoMin = c?.duracao_tempo ?? 10;
-      const pr = !!c?.prorrogacao;
-      const prMin = c?.duracao_prorrogacao ?? 5;
-      const qpen = c?.qtd_penaltis ?? 5;
+      const pr = !!c?.prorrogacao; const prMin = c?.duracao_prorrogacao ?? 5; const qpen = c?.qtd_penaltis ?? 5;
       setDurTempo(tempoMin); setUsaProrrogacao(pr); setDurProrro(pr ? prMin : 5); setQtdPen(qpen);
 
       setIsMataMata(!!p.is_mata_mata); setPerna(p.perna ?? null); setChaveId(p.chave_id ?? null); setEtapa(p.etapa || null);
@@ -241,8 +387,7 @@ export default function Placar() {
           .in("id", ids)
           .eq("usuario_id", ownerId);
         const byId = new Map((ts || []).map((t) => [t.id, t]));
-        const A = byId.get(p.time_a_id);
-        const B = byId.get(p.time_b_id);
+        const A = byId.get(p.time_a_id); const B = byId.get(p.time_b_id);
         if (A) { setTimeA({ id: A.id, nome: A.nome, abrev: A.abreviacao || "", escudo_url: A.escudo_url || null }); setCorA1(A.cor1 || corA1); setCorA2(A.cor2 || corA2); setCorADetalhe(A.cor_detalhe || corADetalhe); }
         if (B) { setTimeB({ id: B.id, nome: B.nome, abrev: B.abreviacao || "", escudo_url: B.escudo_url || null }); setCorB1(B.cor1 || corB1); setCorB2(B.cor2 || corB2); setCorBDetalhe(B.cor_detalhe || corBDetalhe); }
       }
@@ -277,95 +422,62 @@ export default function Placar() {
   // ===== Screen Wake Lock =====
   const wakeLockRef = useRef(null);
   const [wakeLockActive, setWakeLockActive] = useState(false);
-
   const requestWakeLock = useCallback(async () => {
     try {
-      if (!("wakeLock" in navigator)) return; // sem suporte
-      if (wakeLockRef.current) return; // já ativo
+      if (!("wakeLock" in navigator)) return;
+      if (wakeLockRef.current) return;
       const wl = await navigator.wakeLock.request("screen");
-      wakeLockRef.current = wl;
-      setWakeLockActive(true);
-      wl.addEventListener?.("release", () => {
-        wakeLockRef.current = null;
-        setWakeLockActive(false);
-      });
+      wakeLockRef.current = wl; setWakeLockActive(true);
+      wl.addEventListener?.("release", () => { wakeLockRef.current = null; setWakeLockActive(false); });
     } catch (err) {
-      if (document.visibilityState === "visible") {
-        showToast("ℹ️ Seu dispositivo pode não permitir manter a tela ativa.");
-      }
+      if (document.visibilityState === "visible") showToast("ℹ️ Seu dispositivo pode não permitir manter a tela ativa.");
     }
   }, [showToast]);
-
-  const releaseWakeLock = useCallback(() => {
-    try { wakeLockRef.current?.release?.(); } catch {}
-    wakeLockRef.current = null;
-    setWakeLockActive(false);
-  }, []);
-
+  const releaseWakeLock = useCallback(() => { try { wakeLockRef.current?.release?.(); } catch {} wakeLockRef.current = null; setWakeLockActive(false); }, []);
   useEffect(() => {
-    // Mantém a tela ativa enquanto o Placar estiver aberto
     requestWakeLock();
-
-    const onVis = () => {
-      if (document.visibilityState === "visible" && !wakeLockRef.current) {
-        requestWakeLock();
-      }
-    };
+    const onVis = () => { if (document.visibilityState === "visible" && !wakeLockRef.current) requestWakeLock(); };
+    const onOrient = () => { if (!wakeLockRef.current) requestWakeLock(); };
     document.addEventListener("visibilitychange", onVis);
+    screen.orientation?.addEventListener?.("change", onOrient);
+    window.addEventListener("orientationchange", onOrient);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
+      screen.orientation?.removeEventListener?.("change", onOrient);
+      window.removeEventListener("orientationchange", onOrient);
       releaseWakeLock();
     };
   }, [requestWakeLock, releaseWakeLock]);
 
-  // ===== Timer =====
+  // ===== Timer & Transições =====
   const onTick = useCallback(() => {
     setSegRestantes((s) => {
       if (s <= 1) {
         window.clearInterval(intervalRef.current);
         setRodando(false);
-
-        // Transições automáticas por término do tempo
         if (fase === "1T" && !encerrada) {
-          showToast("⏱️ Fim do 1º tempo!");
-          setFase("2T");
-          setSegRestantes(getDurTempoCamp() * 60);
-          return getDurTempoCamp() * 60;
+          showToast("⏱️ Fim do 1º tempo!"); sfxWhistleEnd(); setFaseComDuracao("2T", { silentStart: true }); return getDurTempoCamp()*60;
         }
-
         if (fase === "2T" && !encerrada) {
           if (isMataMata && precisaDesempateApos2T()) {
-            if (camp?.prorrogacao) {
-              showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada.");
-              startProrrogacao();
-            } else {
-              showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis.");
-              enterPenaltis(getQtdPenCamp());
-            }
+            sfxWhistleEnd();
+            if (camp?.prorrogacao) { showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada."); startProrrogacao(); }
+            else { showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis."); enterPenaltis(getQtdPenCamp()); }
+          } else {
+            sfxFinalSimple(); setEncerrada(true); ensureCrowdLoop(false); if (!isAvulso) salvarVinculado(true);
           }
         }
-
-        if (fase === "PR1" && !encerrada) {
-          showToast("⏱️ Fim da 1ª prorrogação!");
-          setFase("PR2");
-          setSegRestantes(getDurProrroCamp() * 60);
-          return getDurProrroCamp() * 60;
-        }
-
+        if (fase === "PR1" && !encerrada) { showToast("⏱️ Fim da 1ª prorrogação!"); sfxWhistleEnd(); setFaseComDuracao("PR2", { silentStart: true }); return getDurProrroCamp()*60; }
         if (fase === "PR2" && !encerrada) {
-          showToast("⏱️ Fim da 2ª prorrogação!");
-          if (isAvulso) {
-            if (golsA === golsB) enterPenaltis(getQtdPenCamp());
-          } else if (isMataMata) {
-            const agg = placarAgregado();
-            if (agg.a === agg.b) enterPenaltis(getQtdPenCamp());
-          }
+          showToast("⏱️ Fim da 2ª prorrogação!"); sfxWhistleEnd();
+          if (isAvulso) { if (golsA === golsB) enterPenaltis(getQtdPenCamp()); }
+          else if (isMataMata) { const agg = placarAgregado(); if (agg.a === agg.b) enterPenaltis(getQtdPenCamp()); }
         }
         return 0;
       }
       return Math.max(0, s - 1);
     });
-  }, [fase, encerrada, isMataMata, camp, isAvulso, golsA, golsB, startProrrogacao, enterPenaltis]);
+  }, [fase, encerrada, isMataMata, camp, isAvulso, golsA, golsB, setFaseComDuracao, startProrrogacao, enterPenaltis, sfxWhistleEnd, sfxFinalSimple, ensureCrowdLoop, getDurTempoCamp, getDurProrroCamp, getQtdPenCamp]);
 
   useEffect(() => {
     if (!rodando) { window.clearInterval(intervalRef.current); return; }
@@ -373,25 +485,23 @@ export default function Placar() {
     return () => window.clearInterval(intervalRef.current);
   }, [rodando, onTick]);
 
-  // ===== Auto-encerrar: pontos corridos & AVULSO =====
+  // ===== Auto-encerrar em pontos corridos e avulso =====
   useEffect(() => {
     if (!rodando && segRestantes === 0) {
       if (isAvulso && fase === "2T" && !encerrada) {
         if (golsA === golsB) {
-          if (desempate === "prorrogacao") { showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada."); startProrrogacao(); return; }
-          if (desempate === "penaltis") { showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis."); enterPenaltis(getQtdPenCamp()); return; }
-          setEncerrada(true); showToast("🏁 Amistoso encerrado (empate)."); return;
+          if (desempate === "prorrogacao") { showToast("⏱️ Fim do 2º tempo! Prorrogação iniciada."); sfxWhistleEnd(); startProrrogacao(); return; }
+          if (desempate === "penaltis") { showToast("⏱️ Fim do 2º tempo! Vamos aos pênaltis."); sfxWhistleEnd(); enterPenaltis(getQtdPenCamp()); return; }
+          setEncerrada(true); showToast("🏁 Amistoso encerrado (empate)."); sfxFinalSimple(); return;
         }
-        setEncerrada(true); showToast("🏁 Amistoso encerrado."); return;
+        setEncerrada(true); showToast("🏁 Amistoso encerrado."); sfxFinalSimple(); return;
       }
       if (!isMataMata && fase === "2T" && !encerrada && !autoEndRef.current) {
-        autoEndRef.current = true;
-        showToast("🏁 Partida encerrada (pontos corridos)");
-        salvarVinculado(true);
+        autoEndRef.current = true; showToast("🏁 Partida encerrada (pontos corridos)"); sfxFinalSimple(); salvarVinculado(true);
       }
     }
     if (segRestantes > 0) autoEndRef.current = false;
-  }, [segRestantes, rodando, fase, isMataMata, encerrada, isAvulso, desempate, durProrro, golsA, golsB]);
+  }, [segRestantes, rodando, fase, isMataMata, encerrada, isAvulso, desempate, golsA, golsB, sfxWhistleEnd, sfxFinalSimple, startProrrogacao, enterPenaltis, getQtdPenCamp]);
 
   // ===== Persistência =====
   async function salvarVinculado(encerrar = false, overrides = {}) {
@@ -410,88 +520,63 @@ export default function Placar() {
     const payload = { ...payloadBase, ...overrides };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
     if (error) { showToast("❌ Erro ao salvar partida"); return; }
-    if (encerrar) { setEncerrada(true); setRodando(false); setSegRestantes(0); showToast("✅ Partida encerrada e salva!"); } else { showToast("✅ Parciais salvas!"); }
+    if (encerrar) { setEncerrada(true); setRodando(false); setSegRestantes(0); setPenFinished(true); sfxWhistleEnd(); showToast("✅ Partida encerrada e salva!"); }
+    else { showToast("✅ Parciais salvas!"); sfxClick(); }
   }
 
   async function salvarLocalHorario() {
-    if (isAvulso || !partidaId) { showToast("⏺️ Local/Data atualizados (modo avulso)"); return; }
+    if (isAvulso || !partidaId) { showToast("⏺️ Local/Data atualizados (modo avulso)"); sfxClick(); return; }
     const payload = { local: local || null, data_hora: dataHora ? toLocalISOString(dataHora) : null };
     const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
     if (error) { showToast("❌ Erro ao salvar Local/Data"); return; }
-    showToast("✅ Local e Data/Hora salvos!");
+    showToast("✅ Local e Data/Hora salvos!"); sfxClick();
   }
 
   async function reiniciarPartida() {
-    setGolsA(0); setGolsB(0); resetPenalties(); setFase("1T"); setSegRestantes(getDurTempoCamp() * 60); setRodando(false); setEncerrada(false);
-    if (isAvulso || !partidaId) { showToast("🔄 Partida reiniciada"); return; }
-    const payload = { gols_time_a: 0, gols_time_b: 0, penaltis_time_a: 0, penaltis_time_b: 0, penmiss_time_a: 0, penmiss_time_b: 0, encerrada: false, prorrogacao: false };
-    const { error } = await supabase.from("partidas").update(payload).eq("id", partidaId);
-    if (error) showToast("❌ Erro ao reiniciar partida"); else showToast("🔄 Partida reiniciada");
+    // Avulso: apenas reseta o estado local
+    if (isAvulso || !partidaId) {
+      setGolsA(0); setGolsB(0);
+      resetPenalties();
+      setFase("1T");
+      setSegRestantes(getDurTempoCamp()*60);
+      setRodando(false);
+      setEncerrada(false);
+      showToast("🔄 Partida reiniciada");
+      sfxClick();
+      return;
+    }
+
+    // Vinculado: chama apenas a função do banco e NÃO faz nenhuma outra ação de banco
+    try {
+      const { error } = await supabase.rpc('reabrir_partida', { p_partida_id: partidaId });
+      if (error) { showToast("❌ Erro ao reabrir partida"); return; }
+      // Atualiza somente o estado local; sem updates adicionais no banco
+      setGolsA(0); setGolsB(0);
+      resetPenalties();
+      setFase("1T");
+      setSegRestantes(getDurTempoCamp()*60);
+      setRodando(false);
+      setEncerrada(false);
+      showToast("✅ Partida reaberta");
+      sfxClick();
+    } catch (e) {
+      showToast("❌ Erro ao reabrir partida");
+    }
   }
 
   function labelFaseAmigavel(f) {
     switch (f) { case "1T": return "1º tempo"; case "2T": return "2º tempo"; case "PR1": return "1ª prorrogação"; case "PR2": return "2ª prorrogação"; case "PEN": return "pênaltis"; default: return f || ""; }
   }
 
-  function encerrarPartidaImediata() {
-    window.clearInterval(intervalRef.current);
-    setRodando(false); setEncerrada(true); setSegRestantes(0); setPenFinished(true); setShowAvulsoEdit(false); showToast("🏁 Partida encerrada (avulso).");
-  }
-
-  function resetPeriodo() {
-    const secs = (fase === "1T" || fase === "2T") ? getDurTempoCamp() * 60 : getDurProrroCamp() * 60;
-    setSegRestantes(secs);
-    setRodando(false);
-  }
-
-  // ===== Pênaltis =====
-  function resetPenalties() { setPenA(0); setPenB(0); setPenAMiss(0); setPenBMiss(0); setPenTurn("A"); setPenAlt(false); setPenFinished(false); }
-  const totalA = () => penA + penAMiss; const totalB = () => penB + penBMiss;
-
-  function finalizarPartidaPenaltis(snapshot) {
-    setPenFinished(true); setEncerrada(true); salvarVinculado(true, snapshot || {});
-  }
-
-  function registrarPenalti(team, convertido) {
-    if (penFinished || encerrada) return; if (team !== penTurn) return;
-    let aConv = penA, aMiss = penAMiss, bConv = penB, bMiss = penBMiss;
-    if (team === "A") { if (convertido) aConv += 1; else aMiss += 1; } else { if (convertido) bConv += 1; else bMiss += 1; }
-    const aTot = aConv + aMiss; const bTot = bConv + bMiss;
-
-    if (!penAlt) {
-      const remA = Math.max(0, qtdPen - aTot); const remB = Math.max(0, qtdPen - bTot);
-      if ((aConv - bConv) > remB || (bConv - aConv) > remA) {
-        setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
-        finalizarPartidaPenaltis({ penaltis_time_a: aConv, penaltis_time_b: bConv, penmiss_time_a: aMiss, penmiss_time_b: bMiss });
-        return;
-      }
-      if (aTot >= qtdPen && bTot >= qtdPen) {
-        setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
-        if (aConv !== bConv) { finalizarPartidaPenaltis({ penaltis_time_a: aConv, penaltis_time_b: bConv, penmiss_time_a: aMiss, penmiss_time_b: bMiss }); }
-        else { setPenAlt(true); setPenTurn("A"); }
-        return;
-      }
-      setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss); setPenTurn(team === "A" ? "B" : "A");
-      return;
-    }
-
-    // Alternadas
-    setPenA(aConv); setPenAMiss(aMiss); setPenB(bConv); setPenBMiss(bMiss);
-    if (team === "B") { if (aConv !== bConv) finalizarPartidaPenaltis({ penaltis_time_a: aConv, penaltis_time_b: bConv, penmiss_time_a: aMiss, penmiss_time_b: bMiss }); else setPenTurn("A"); }
-    else { setPenTurn("B"); }
-  }
-
-  // ===== Encerrar período (centralizado) =====
   function encerrarPeriodo(perguntar = true) {
-    if (perguntar && !confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`)) return;
-    setRodando(false);
-
-    if (fase === "1T") { setFaseComDuracao("2T"); return; }
-
+    if (DEBUG) console.log('[periodo] encerrar', { fase });
+    if (perguntar) { const ok = confirm(`Confirma encerrar ${labelFaseAmigavel(fase)}?`); if (!ok) return; }
+    setRodando(false); sfxWhistleEnd(); ensureCrowdLoop(false);
+    if (fase === "1T") { setFaseComDuracao("2T", { silentStart: true }); return; }
     if (fase === "2T") {
       if (isAvulso) {
         if (golsA === golsB) {
-          if (desempate === "prorrogacao") { setFaseComDuracao("PR1"); return; }
+          if (desempate === "prorrogacao") { setFaseComDuracao("PR1", { silentStart: true }); return; }
           if (desempate === "penaltis") { setFase("PEN"); return; }
           setEncerrada(true); showToast("🏁 Amistoso encerrado (empate)."); return;
         }
@@ -499,182 +584,406 @@ export default function Placar() {
       }
       if (!isMataMata) { salvarVinculado(true); return; }
       if (precisaDesempateApos2T()) {
-        if (camp?.prorrogacao) { showToast("⏱️ Fim do 2º tempo! Vamos para a prorrogação."); setFaseComDuracao("PR1"); return; }
-        showToast("⏱️ Fim do 2º tempo! Vamos para os pênaltis."); setFase("PEN"); return;
+        if (camp?.prorrogacao) { showToast("⏱️ Fim do 2º tempo! Vamos para a prorrogação."); setFaseComDuracao("PR1", { silentStart: true }); return; }
+        showToast("⏱️ Fim do 2º tempo! Vamos para os pênaltis."); enterPenaltis(getQtdPenCamp()); return;
       }
       salvarVinculado(true); return;
     }
-
-    if (fase === "PR1") { setFaseComDuracao("PR2"); return; }
-
+    if (fase === "PR1") { setFaseComDuracao("PR2", { silentStart: true }); return; }
     if (fase === "PR2") {
       if (isAvulso) {
-        if (golsA === golsB) { setFase("PEN"); setSegRestantes(0); setRodando(false); setPenTurn("A"); setPenAlt(false); setPenFinished(false); showToast("⏱️ Prorrogação encerrada. Vamos aos pênaltis."); return; }
-        setEncerrada(true); setRodando(false); setSegRestantes(0); showToast("🏁 Partida encerrada (avulso)."); return;
+        if (golsA === golsB) { showToast("⏱️ Prorrogação encerrada. Vamos aos pênaltis."); enterPenaltis(getQtdPenCamp()); return; }
+        setEncerrada(true); setRodando(false); sfxWhistleEnd(); setSegRestantes(0); showToast("🏁 Partida encerrada (avulso)."); return;
       }
-      if (isMataMata) {
-        const agg = placarAgregado();
-        if (agg.a === agg.b) { enterPenaltis(getQtdPenCamp()); return; }
-      }
+      if (isMataMata) { const agg = placarAgregado(); if (agg.a === agg.b) { enterPenaltis(getQtdPenCamp()); return; } }
       salvarVinculado(true); return;
     }
   }
 
+  function encerrarPartidaImediata() {
+    // BLOQUEIO: não permite encerrar se pênaltis estão em andamento e ainda não finalizaram
+    if (fase === "PEN" && !penFinished) {
+      showToast("⚠️ Pênaltis em andamento. Conclua a série (ou as alternadas) para encerrar.");
+      sfxClick();
+      return;
+    }
+    window.clearInterval(intervalRef.current);
+    setRodando(false); setEncerrada(true); setSegRestantes(0); setPenFinished(true); setShowAvulsoEdit(false); sfxWhistleEnd(); showToast("🏁 Partida encerrada (avulso).");
+  }
+
+  function resetPeriodo() {
+    const secs = (fase === "1T" || fase === "2T") ? getDurTempoCamp()*60 : getDurProrroCamp()*60;
+    setSegRestantes(secs); setRodando(false); sfxClick();
+  }
+
+  function resetPenalties() {
+  setPenA(0); setPenB(0);
+  setPenAMiss(0); setPenBMiss(0);
+  setPenTurn("A");
+  setPenAlt(false);
+  setPenFinished(false);
+}
+
+function finalizarPartidaPenaltis(snapshot) {
+  // Só encerra se houver vencedor. Se estiver empatado, força alternadas.
+  const a = penA; const b = penB;
+  if (a === b) {
+    setPenFinished(false);
+    setPenAlt(true);
+    setPenTurn('A');
+    showToast('⚠️ Empate nos pênaltis. Iniciando alternadas.');
+    return;
+  }
+  setPenFinished(true);
+  setEncerrada(true);
+  sfxWhistleEnd();
+  if (!isAvulso) salvarVinculado(true, snapshot || {});
+}
+
+// Finaliza automaticamente quando a série de pênaltis termina
+useEffect(() => {
+  if (penFinished && !encerrada) {
+    finalizarPartidaPenaltis();
+  }
+}, [penFinished, encerrada]);
+
+// Watchdog: se por qualquer razão penFinished ficar true com empate, retoma alternadas
+useEffect(() => {
+  if (fase === 'PEN' && !encerrada && penFinished && penA === penB) {
+    setPenFinished(false);
+    setPenAlt(true);
+    setPenTurn('A');
+  }
+}, [fase, encerrada, penFinished, penA, penB]);
+
+function registrarPenalti(team, convertido) {
+  if (penFinished || encerrada) return;
+  if (team !== penTurn) return;
+
+  // calcula incrementos e aplica atualização local
+  const incA = team === 'A' && convertido ? 1 : 0;
+  const incB = team === 'B' && convertido ? 1 : 0;
+
+  if (team === 'A') {
+    convertido ? setPenA(v => v + 1) : setPenAMiss(v => v + 1);
+  } else {
+    convertido ? setPenB(v => v + 1) : setPenBMiss(v => v + 1);
+  }
+
+  // valores após esta cobrança
+  const nextA = penA + incA;
+  const nextB = penB + incB;
+
+  const aTaken = penA + penAMiss + (team === 'A' ? 1 : 0);
+  const bTaken = penB + penBMiss + (team === 'B' ? 1 : 0);
+
+  if (!penAlt) {
+    const remA = qtdPen - aTaken;
+    const remB = qtdPen - bTaken;
+    // vitória antecipada ainda na série regular
+    if ((nextA - penB) > remB || (nextB - penA) > remA) { setPenFinished(true); return; }
+    // fim da série regular
+    if (aTaken >= qtdPen && bTaken >= qtdPen) {
+      if (nextA !== nextB) { setPenFinished(true); return; }
+      // empate: alternadas
+      setPenAlt(true);
+      setPenTurn('A');
+      return;
+    }
+  } else {
+    // alternadas: após cada par (A e B), checar diferença
+    if (aTaken === bTaken && nextA !== nextB) { setPenFinished(true); return; }
+  }
+
+  // alterna vez
+  setPenTurn(prev => (prev === 'A' ? 'B' : 'A'));
+}
+
   // ===== Render =====
   const tevePenaltis = (penA + penB + penAMiss + penBMiss) > 0;
 
-  return (
-    <div className="container" style={{ maxWidth: `calc(${COL_W} * 2 + ${GAP * 2}px)`, margin: "0 auto", padding: "0 8px" }}>
-      {/* Topo */}
-      <div className="placar-header card">
-        <span className="placar-header__title">{isAvulso ? "Amistoso" : camp?.nome || "Campeonato"}</span>
-        {/*{wakeLockActive && <span className="badge" style={{ marginLeft: 8 }}>Tela ativa</span>}*/}
-        {isAvulso && (
-          <button
-            className="placar-header__edit btn"
-            onClick={() => setShowAvulsoEdit(v => !v)}
-            aria-label="Editar amistoso"
-          >✎</button>
-        )}
-      </div>
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerCfg, setPickerCfg] = useState({ team: 'A', slot: 'cor1', label: '', value: '#ffffff' });
 
-      {/* Painel Avulso */}
+  const openColorPicker = (team, slot, label, value) => {
+    setPickerCfg({ team, slot, label, value });
+    setPickerOpen(true);
+  };
+  const applyPickedColor = (hex) => {
+    if (pickerCfg.team === 'A') {
+      if (pickerCfg.slot === 'cor1') setCorA1(hex);
+      else if (pickerCfg.slot === 'cor2') setCorA2(hex);
+      else setCorADetalhe(hex);
+    } else {
+      if (pickerCfg.slot === 'cor1') setCorB1(hex);
+      else if (pickerCfg.slot === 'cor2') setCorB2(hex);
+      else setCorBDetalhe(hex);
+    }
+    setPickerOpen(false);
+  };
+
+  useEffect(() => {
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-placar-nav-override','1');
+    // Esconde QUALQUER header global, exceto o que tiver nosso atributo
+    styleEl.innerHTML = `
+      body.aa-hide-global-navbar header:not([data-placar-nav]) {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+    document.body.classList.add('aa-hide-global-navbar');
+    return () => {
+      document.body.classList.remove('aa-hide-global-navbar');
+      document.head.removeChild(styleEl);
+    };
+  }, []);
+
+  return (
+    <div className="container">
+      {/* Navbar próprio do Placar */}
+      <header data-placar-nav style={ui.navFixed}>
+        <div style={ui.navInner}>
+          <div style={ui.navSide} onClick={() => navigate('/')} role="button" aria-label="Ir para a Home">
+            <img src={logo} alt="AureoArtes" style={ui.navLogo} />
+          </div>
+          <div style={ui.navCenter}>
+            <span style={ui.navTitle}>{isAvulso ? 'Amistoso' : (camp?.nome || 'Campeonato')}</span>
+          </div>
+          <div style={{ ...ui.navSide, justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={() => navigate(-1)} aria-label="Voltar" style={ui.navBackBtn}>
+              ←
+            </button>
+            {isAvulso && (
+              <button className="btn" onClick={() => setShowAvulsoEdit(v => !v)} aria-label="Editar amistoso" style={ui.navBackBtn}>✎</button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Spacer para não sobrepor o conteúdo */}
+      <div style={ui.navSpacer} />
+
+      {/* Editor Avulso */}
       {isAvulso && showAvulsoEdit && (
-        <div className="card" style={ui.cardPad}>
-          <div className="row" style={ui.avulsoGrid}>
-            {/* TIME A */}
-            <div style={{ minWidth: 260, flex: 1 }}>
-              <div className="label" style={ui.labelBold}>Time A</div>
-              <div className="row" style={ui.rowGap8}>
-                <input className="input" placeholder="Nome do Time A" value={timeA.nome} onChange={e => setTimeA(t => ({ ...t, nome: e.target.value }))} disabled={started} style={{ flex: 2 }} />
-                <input className="input" placeholder="SIG" value={timeA.abrev || ""} onChange={e => setTimeA(t => ({ ...t, abrev: e.target.value.slice(0, 3).toUpperCase() }))} disabled={started} style={ui.sigla} />
-              </div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor 1 (A)" value={corA1} onChange={setCorA1} disabled={started} /></div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor 2 (A)" value={corA2} onChange={setCorA2} disabled={started} /></div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor Detalhe (A)" value={corADetalhe} onChange={setCorADetalhe} disabled={started} /></div>
+        <div className="card" style={{ ...ui.cardPadMt20, ...ui.cardFullWidth }}>
+          <div className="row" style={{ display:'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+            <div className="row" style={{ gap: 8, alignItems:'center' }}>
+              <label className="label">Duração de cada tempo (min.)</label>
+              <input type="number" className="input" min={1} max={45} value={durTempo} onChange={e => { const v = Math.max(1, Number(e.target.value)||10); setDurTempo(v); if ((fase === "1T" || fase === "2T") && !rodando) setSegRestantes(v * 60); }} style={{ maxWidth: 100 }} />
             </div>
-            {/* TIME B */}
-            <div style={{ minWidth: 260, flex: 1 }}>
-              <div className="label" style={ui.labelBold}>Time B</div>
-              <div className="row" style={ui.rowGap8}>
-                <input className="input" placeholder="Nome do Time B" value={timeB.nome} onChange={e => setTimeB(t => ({ ...t, nome: e.target.value }))} disabled={started} style={{ flex: 2 }} />
-                <input className="input" placeholder="SIG" value={timeB.abrev || ""} onChange={e => setTimeB(t => ({ ...t, abrev: e.target.value.slice(0, 3).toUpperCase() }))} disabled={started} style={ui.sigla} />
+            <div className="row" style={{ gap: 8, alignItems:'center' }}>
+              <label className="label">Desempate</label>
+              <select className="input" value={desempate} onChange={e => setDesempate(e.target.value)} style={{ maxWidth: 200 }}>
+                <option value="amistoso">Amistoso (pode empatar)</option>
+                <option value="prorrogacao">Prorrogação e Penaltis</option>
+                <option value="penaltis">Somente Pênaltis</option>
+              </select>
+            </div>
+            <div className="row" style={{ gap: 8, alignItems:'center' }}>
+              <label className="label">Prorrogação (min.)</label>
+              <input type="number" className="input" min={1} max={15} value={durProrro} onChange={e => { const v = Math.max(1, Number(e.target.value)||5); setDurProrro(v); if ((fase === "PR1" || fase === "PR2") && !rodando) setSegRestantes(v * 60); }} style={{ maxWidth: 100 }} />
+            </div>
+            <div className="row" style={{ gap: 8, alignItems:'center' }}>
+              <label className="label">Pênaltis regulares</label>
+              <input type="number" className="input" min={1} max={5} value={qtdPen} onChange={e => setQtdPen(Math.max(1, Number(e.target.value)||5))} style={{ maxWidth: 100 }} />
+            </div>
+          </div>
+          {/* Espaço entre seções */}
+          <div style={{ height: 16 }} />
+
+          <div className="row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label className="label">Time A</label>
+              <input type="text" className="input" value={timeA.nome} maxLength={20} onChange={e => setTimeA(t => ({ ...t, nome: e.target.value }))} />
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <label className="label">Sigla</label>
+                <input type="text" className="input" style={{ maxWidth: 100 }} value={timeA.abrev} maxLength={5} onChange={e => setTimeA(t => ({ ...t, abrev: e.target.value }))} />
               </div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor 1 (B)" value={corB1} onChange={setCorB1} disabled={started} /></div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor 2 (B)" value={corB2} onChange={setCorB2} disabled={started} /></div>
-              <div style={ui.mt10}><ColorSwatchSelect label="Cor Detalhe (B)" value={corBDetalhe} onChange={setCorBDetalhe} disabled={started} /></div>
+              <div className="row" style={ui.colorRow}>
+                <label className="label">Cores</label>
+                <button type="button" aria-label="Cor 1 A"
+                  style={ui.colorDot(corA1)}
+                  onClick={() => openColorPicker('A','cor1','Cor 1', corA1)} />
+                <button type="button" aria-label="Cor 2 A"
+                  style={ui.colorDot(corA2)}
+                  onClick={() => openColorPicker('A','cor2','Cor 2', corA2)} />
+                <button type="button" aria-label="Cor Detalhe A"
+                  style={ui.colorDot(corADetalhe)}
+                  onClick={() => openColorPicker('A','detalhe','Cor Detalhe', corADetalhe)} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Time B</label>
+              <input type="text" className="input" value={timeB.nome} maxLength={20} onChange={e => setTimeB(t => ({ ...t, nome: e.target.value }))} />
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <label className="label">Sigla</label>
+                <input type="text" className="input" style={{ maxWidth: 100 }} value={timeB.abrev} maxLength={5} onChange={e => setTimeB(t => ({ ...t, abrev: e.target.value }))} />
+              </div>
+              <div className="row" style={ui.colorRow}>
+                <label className="label">Cores</label>
+                <button type="button" aria-label="Cor 1 B"
+                  style={ui.colorDot(corB1)}
+                  onClick={() => openColorPicker('B','cor1','Cor 1', corB1)} />
+                <button type="button" aria-label="Cor 2 B"
+                  style={ui.colorDot(corB2)}
+                  onClick={() => openColorPicker('B','cor2','Cor 2', corB2)} />
+                <button type="button" aria-label="Cor Detalhe B"
+                  style={ui.colorDot(corBDetalhe)}
+                  onClick={() => openColorPicker('B','detalhe','Cor Detalhe', corBDetalhe)} />
+              </div>
             </div>
           </div>
 
-          {/* Configs */}
-          <div style={ui.mt14}>
-            <div className="label" style={ui.labelBold}>Configurações da Partida</div>
-            <div className="row" style={ui.configRow}>
-              <select className="input" value={desempate} onChange={(e) => setDesempate(e.target.value)} disabled={started} style={{ minWidth: 240 }} title="Critério em caso de empate no tempo normal" >
-                <option value="amistoso">Desempate: Amistoso (permite empate)</option>
-                <option value="prorrogacao">Desempate: Prorrogação</option>
-                <option value="penaltis">Desempate: Pênaltis direto</option>
-              </select>
-              <div className="row" style={ui.rowGap8}><label className="label" style={ui.labelInline}>Tempo de partida (min):</label>
-                <input type="number" className="input" min={1} value={durTempo} onChange={e => { const novo = Math.max(1, Number(e.target.value || 1)); setDurTempo(novo); if (!rodando && (fase === "1T" || fase === "2T")) setSegRestantes(novo * 60); }} disabled={started} style={ui.numSmall} />
-              </div>
-              <div className="row" style={ui.rowGap8}><label className="label" style={ui.labelInline}>Prorrogação (min):</label>
-                <input type="number" className="input" min={1} value={durProrro} onChange={e => setDurProrro(Math.max(1, Number(e.target.value || 1)))} disabled={started || desempate !== "prorrogacao"} style={ui.numSmall} />
-              </div>
-              <div className="row" style={ui.rowGap8}><label className="label" style={ui.labelInline}>Pênaltis (regulares):</label>
-                <input type="number" className="input" min={1} value={qtdPen} onChange={e => setQtdPen(Math.max(1, Number(e.target.value || 1)))} disabled={started} style={ui.numSmall} />
+          {/* Overlay Color Picker */}
+          {pickerOpen && (
+            <div style={ui.overlay} onClick={() => setPickerOpen(false)}>
+              <div style={ui.modal} onClick={(e) => e.stopPropagation()}>
+                <div className="row" style={{ justifyContent:'space-between', alignItems:'center', marginBottom: 8 }}>
+                  <div className="label" style={{ fontWeight: 900 }}>
+                    Time - {pickerCfg.team}
+                  </div>
+                  <button className="btn btn--orange" onClick={() => setPickerOpen(false)}>Fechar</button>
+                </div>
+                <ColorSwatchSelect
+                  label={pickerCfg.label}
+                  value={pickerCfg.value}
+                  onChange={applyPickedColor}
+                />
               </div>
             </div>
+          )}
+
+          <div className="row" style={{ ...ui.rowCenter12, marginTop: 12 }}>
+            <button className="btn btn--orange" onClick={() => setShowAvulsoEdit(false)}>Fechar edição</button>
           </div>
         </div>
       )}
 
       {/* Times + Placar */}
       <div style={{ ...ui.boardGrid, ...(isMobilePortrait ? ui.boardGridMobile : null) }}>
-        {/* Escudos */}
+        {(isMataMata && perna === 2) && (
+          <div style={ui.aggregateBox}>
+            <div style={ui.aggregateTitle}>Agregado</div>
+            <div style={ui.aggregateScore}>
+              ({placarAgregado().a}x{placarAgregado().b})
+            </div>
+          </div>
+        )}
         <div style={{ ...ui.iconCell, ...(isMobilePortrait ? ui.iconCellMobile : null) }}>{renderTeamIcon(withColors(timeA, corA1, corA2, corADetalhe))}</div>
         <div style={{ ...ui.iconCell, ...(isMobilePortrait ? ui.iconCellMobile : null) }}>{renderTeamIcon(withColors(timeB, corB1, corB2, corBDetalhe))}</div>
-        {/* Nomes */}
         <div style={{ ...ui.teamNameBar, background: corA1, color: corADetalhe, textShadow: getContrastShadow(corADetalhe) }}>{timeA.nome}</div>
         <div style={{ ...ui.teamNameBar, background: corB1, color: corBDetalhe, textShadow: getContrastShadow(corBDetalhe) }}>{timeB.nome}</div>
         <div style={{ ...ui.teamThinBar, background: corA2 }} />
         <div style={{ ...ui.teamThinBar, background: corB2 }} />
-        {/* Placar */}
-        <div style={ui.scoreCell}><ScoreCardA value={golsA} onDec={() => setGolsA(v => Math.max(0, v - 1))} onInc={() => setGolsA(v => v + 1)} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} /></div>
-        <div style={ui.scoreCell}><ScoreCardB value={golsB} onDec={() => setGolsB(v => Math.max(0, v - 1))} onInc={() => setGolsB(v => v + 1)} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} /></div>
+        <div style={ui.scoreCell}><ScoreCardA value={golsA} onDec={() => { setGolsA(v => Math.max(0, v - 1)); sfxClick(); }} onInc={() => { setGolsA(v => v + 1); sfxWhistleGoal(); sfxCrowdCheer(); }} bg={corA1} textColor={corADetalhe} textShadow={getContrastShadow(corADetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} /></div>
+        <div style={ui.scoreCell}><ScoreCardB value={golsB} onDec={() => { setGolsB(v => Math.max(0, v - 1)); sfxClick(); }} onInc={() => { setGolsB(v => v + 1); sfxWhistleGoal(); sfxCrowdCheer(); }} bg={corB1} textColor={corBDetalhe} textShadow={getContrastShadow(corBDetalhe)} showControls={!encerrada && fase !== 'PEN'} compact={isMobilePortrait} /></div>
       </div>
 
-      {/* Faixa e cronômetro */}
       <div style={{ marginTop: isMobilePortrait ? -40 : -60 }}>
         <img src={logo} alt="AureoArtes" style={{ ...ui.logoBelowImg, ...(isMobilePortrait ? { height: 40 } : null) }} />
       </div>
       <div style={ui.orangeLineWide} />
-      <div className="placar-timer"><div className="placar-timer__value">{fmt(segRestantes)}</div></div>
+      <div className="placar-timer" style={{ marginBottom: 12 }}><div className="placar-timer__value">{fmt(segRestantes)}</div></div>
+      <div style={{ height: 8 }} />
 
-      {/* Toast */}
-      {toastMsg && (
-        <div className={`placar-toast ${isMobilePortrait ? "placar-toast--top" : ""}`}>{toastMsg}</div>
-      )}
+      {toastMsg && (<div className={`placar-toast ${isMobilePortrait ? "placar-toast--top" : ""}`}>{toastMsg}</div>)}
 
-      {/* Seção Período / Encerrada */}
-      {encerrada && (<div className="card" style={ui.cardCenteredStrong}>Partida Encerrada</div>)}
-
+      {/* ===== Seção Períodos ===== */}
       {!encerrada && fase !== "PEN" && (
-        <div className="card" style={ui.cardCentered}>
+        <div className="card" style={{...ui.cardCentered, ...ui.cardFullWidth}}>
           <div className={`placar-period${isMobilePortrait ? " placar-period--sm" : ""}`}>{labelFaseAmigavel(fase)}</div>
           <div className="row" style={ui.rowCenter8}>
             {!rodando ? (
-              <button className="btn btn--primary" onClick={() => { setShowAvulsoEdit(false); setRodando(true); }} style={isMobilePortrait ? ui.btnSm : undefined}>Iniciar</button>
+              <button className="btn btn--primary" onClick={() => { setShowAvulsoEdit(false); setRodando(true); sfxWhistleStart(); ensureCrowdLoop(true); }} style={isMobilePortrait ? ui.btnSm : undefined}>Iniciar</button>
             ) : (
-              <button className="btn btn--primary" onClick={() => setRodando(false)} style={isMobilePortrait ? ui.btnSm : undefined}>Pausar</button>
+              <button className="btn btn--primary" onClick={() => { setRodando(false); sfxEndSimple(); ensureCrowdLoop(false); }} style={isMobilePortrait ? ui.btnSm : undefined}>Pausar</button>
             )}
             <button className="btn btn--muted" onClick={resetPeriodo} style={isMobilePortrait ? ui.btnSm : undefined}>{isMobilePortrait ? "Reiniciar" : "Reiniciar período"}</button>
             <button className="btn btn--muted" onClick={() => encerrarPeriodo(true)} style={isMobilePortrait ? ui.btnSm : undefined}>{isMobilePortrait ? "Encerrar" : "Encerrar período"}</button>
           </div>
         </div>
       )}
-
-      {/* Pênaltis */}
+      {/* ===== Seção Partida Encerrada ===== */}
+      {encerrada && (<div className="card" style={{...ui.cardCenteredStrong, ...ui.cardFullWidth}}>Partida Encerrada</div>)}
+      {/* Espaço entre seções */}
+      <div style={{ height: 8 }} />
+      {/* ===== Seção Penaltis ===== */}
       {(fase === "PEN" || (encerrada && tevePenaltis)) && (
-        <div className="card" style={ui.cardPadCenter}>
-          <div style={ui.penTitle}>{penAlt ? "Pênaltis — Cobranças alternadas" : `Pênaltis — Cobranças regulares ${qtdPen}`}</div>
-          <div className="badge" style={{ marginBottom: 10 }}>Vez: {penTurn === "A" ? timeA.nome : timeB.nome}</div>
-          <div className="row" style={ui.penRow}> 
-            <div>
-              <div style={ui.penTeamBox(corA1, corADetalhe, corA2)}>{timeA.nome}<div>⚽ {penA} &nbsp;&nbsp; ❌ {penAMiss}</div></div>
-              <div className="row" style={ui.rowGap8Mt6}>
-                <button className="btn btn--primary" style={ui.penBtn} onClick={() => registrarPenalti("A", true)} disabled={encerrada || penFinished || penTurn !== "A"}>⚽ Marcou</button>
-                <button className="btn btn--primary" style={ui.penBtn} onClick={() => registrarPenalti("A", false)} disabled={encerrada || penFinished || penTurn !== "A"}>❌ Perdeu</button>
-              </div>
+        <div className="card" style={{ ...ui.cardPadCenter, ...ui.cardFullWidth }}>
+          <div style={ui.penTitle}>
+            {penAlt ? "Pênaltis — Cobranças alternadas" : `Pênaltis — Cobranças regulares ${qtdPen}`}
+          </div>
+
+          <div className="row" style={ui.rowCenter12}>
+            <div style={ui.penTeamBox(corA1, corADetalhe, corA2)}>
+              <div>{timeA.nome}</div>
+              <div style={ui.penScoreLine}>⚽ {penA} • ❌ {penAMiss}</div>
             </div>
-            <div>
-              <div style={ui.penTeamBox(corB1, corBDetalhe, corB2)}>{timeB.nome}<div>⚽ {penB} &nbsp;&nbsp; ❌ {penBMiss}</div></div>
-              <div className="row" style={ui.rowGap8Mt6}>
-                <button className="btn btn--primary" style={ui.penBtn} onClick={() => registrarPenalti("B", true)} disabled={encerrada || penFinished || penTurn !== "B"}>⚽ Marcou</button>
-                <button className="btn btn--primary" style={ui.penBtn} onClick={() => registrarPenalti("B", false)} disabled={encerrada || penFinished || penTurn !== "B"}>❌ Perdeu</button>
-              </div>
+            <div style={ui.penTeamBox(corB1, corBDetalhe, corB2)}>
+              <div>{timeB.nome}</div>
+              <div style={ui.penScoreLine}>⚽ {penB} • ❌ {penBMiss}</div>
             </div>
           </div>
+
+          {!penFinished && !encerrada && (
+            <>
+              <div className="row" style={{ ...ui.rowCenter12, marginTop: 10 }}>
+                <div className="badge">Vez: {penTurn === "A" ? timeA.nome : timeB.nome}</div>
+              </div>
+              <div className="row" style={{ ...ui.rowCenter12, marginTop: 8 }}>
+                <button
+                  className="btn btn--primary"
+                  style={ui.penBtn}
+                  onClick={() => registrarPenalti(penTurn, true)}
+                >
+                  ⚽ Gol
+                </button>
+                <button
+                  className="btn btn--muted"
+                  style={ui.penBtn}
+                  onClick={() => registrarPenalti(penTurn, false)}
+                >
+                  ❌ Errou
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
-
-      {/* Local/Data e Controles */}
-      <div className="card" style={ui.cardPadMt20}>
+      {/* Espaço entre seções */}
+      <div style={{ height: 8 }} />
+      {/* ===== Seção inferior: Local/Data + Toggles + Ações ===== */}
+      <div className="card" style={{ ...ui.cardPadMt20, ...ui.cardFullWidth, marginTop: 16 }}>
         <div className="row" style={ui.localGrid}>
           <input type="text" className="input" placeholder="Local" value={local} onChange={e => setLocal(e.target.value)} />
-          <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} onFocus={() => { if (!dataHora) { const agora = new Date(); setDataHora(agora.toISOString().slice(0,16)); } }} />
+          <input type="datetime-local" className="input" value={dataHora} onChange={e => setDataHora(e.target.value)} />
         </div>
+        
         <div className="row" style={ui.rowCenter12}>
           {!isAvulso && (<button className="btn" style={ui.btnOrange} onClick={salvarLocalHorario}>Salvar Local</button>)}
           <button className="btn btn--danger" onClick={reiniciarPartida}>Reiniciar Partida</button>
-          <button className="btn btn--danger" onClick={() => isAvulso ? encerrarPartidaImediata() : (canEnd && salvarVinculado(true))} disabled={!isAvulso && !canEnd}>Encerrar Partida</button>
+          <button className="btn btn--danger" onClick={() => isAvulso ? encerrarPartidaImediata() : (canEnd && salvarVinculado(true))} disabled={(fase === "PEN" && !penFinished) || (!isAvulso && !canEnd)}>Encerrar Partida</button>
           <button className="btn btn--muted" onClick={() => navigate(-1)}>Voltar</button>
         </div>
-      </div>
-    </div>
-  );
-}
 
+        <div className="row" style={{ ...ui.rowCenter12, flexWrap: 'wrap', marginBottom: 8 }}>
+          <label className="label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={soundOn} onChange={(e) => setSoundOn(e.target.checked)} /> Sons de apito
+          </label>
+          <label className="label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={crowdOn} onChange={(e) => setCrowdOn(e.target.checked)} /> Torcida (ambiente)
+          </label>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span className="label">Volume:</span>
+            <input type="range" min={0} max={1} step={0.05} value={soundVol} onChange={(e) => setSoundVol(Number(e.target.value))} style={{ width: 160 }} />
+          </div>
+        </div>
+      </div>
+
+  </div>
+);
+}
 /* ===== Blocos/Componentes ===== */
 function renderTeamIcon(team) {
   const shadow = getContrastShadow(team.cor_detalhe);
@@ -710,12 +1019,15 @@ function ScoreCardPoly({ value, onDec, onInc, bg, textColor, textShadow, side = 
 const ScoreCardA = (props) => <ScoreCardPoly side="A" {...props} />;
 const ScoreCardB = (props) => <ScoreCardPoly side="B" {...props} />;
 
+
 /* ===== Styles ===== */
-const COL_W   = "clamp(140px, 42vw, 360px)"; // col width
+const COL_W   = "clamp(140px, 42vw, 360px)";
 const GAP     = 16;
 const ICON_SIZE = 140;
+const NAV_H = 56;
 
 const ui = {
+  cardFullWidth: { maxWidth: `calc(${COL_W} * 2 + 28px)`, margin: "0 auto" },
   cardPad: { padding: 14, marginTop: 12 },
   cardPadCenter: { padding: 16, marginTop: 12, textAlign: "center" },
   cardCentered: { padding: 16, marginTop: 12, textAlign: "center" },
@@ -724,7 +1036,6 @@ const ui = {
 
   avulsoGrid: { gap: 14, flexWrap: "wrap" },
   rowGap8: { gap: 8 },
-  rowGap8Mt6: { gap: 8, marginTop: 6 },
   rowCenter8: { gap: 8, justifyContent: "center" },
   rowCenter12: { gap: 12, justifyContent: "center" },
   labelBold: { fontWeight: 900, marginBottom: 8 },
@@ -733,31 +1044,118 @@ const ui = {
   sigla: { width: 80, textTransform: "uppercase", textAlign: "center", fontWeight: 800 },
   mt10: { marginTop: 10 },
   mt14: { marginTop: 14 },
-
-  configRow: { gap: 10, flexWrap: "wrap" },
-
-  boardGrid: { display: "grid", gridTemplateColumns: `repeat(2, ${COL_W})`, gridTemplateRows: "160px auto 6px auto", justifyContent: "center", alignItems: "end", columnGap: 28, rowGap: 0, margin: "-24px auto 16px", width: "100%", maxWidth: `calc(${COL_W} * 2 + 28px)` },
+  boardGrid: { display: "grid", gridTemplateColumns: `repeat(2, ${COL_W})`, gridTemplateRows: "160px auto 6px auto", justifyContent: "center", alignItems: "end", columnGap: 28, rowGap: 0, margin: "-24px auto 16px", width: "100%", maxWidth: `calc(${COL_W} * 2 + 28px)`, position: "relative" },
   boardGridMobile: { gridTemplateRows: "130px auto 6px auto", columnGap: 18, margin: "-18px auto 12px" },
   iconCell: { display: "flex", alignItems: "flex-end", justifyContent: "center", marginBottom: -12, zIndex: 2 },
   iconCellMobile: { marginBottom: -16, transform: "scale(0.85)", transformOrigin: "bottom center" },
   teamNameBar: { width: "100%", boxSizing: "border-box", fontWeight: 900, fontSize: 22, padding: "14px 16px", borderRadius: "16px 16px 0 0", textAlign: "center", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  teamThinBar: { width: "100%", height: 8, borderRadius: 0, margin: 0 },
+  teamThinBar: { width: "100%", height: 8 },
   scoreCell: { width: COL_W, display: "block" },
-
   scoreShell:  { width: "100%" },
   scoreBox: { width: "100%", minWidth: "100%", maxWidth: "100%", boxSizing: "border-box", color: "#fff", borderRadius: "0 0 16px 16px", padding: "16px 16px", minHeight: 220, display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 10px 22px rgba(0,0,0,.22)", backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.1))", border: "1px solid rgba(255,255,255,.06)" },
   scoreBoxCompact: { minHeight: 150, padding: "10px 10px" },
   scoreValue: { fontSize: "clamp(72px, 9vw, 128px)", lineHeight: 1, fontWeight: 900, textAlign: "center", fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum"' },
   scoreValueCompact: { fontSize: "clamp(64px, 8vw, 112px)" },
   scoreBtnsWrap: { display: "flex", justifyContent: "center", gap: 8, marginTop: 8 },
-
   logoBelowImg: { height: 58, display: "block", margin: "0 auto 0" },
-  orangeLineWide: { height: 10, background: "#ff7a00", margin: 0, marginTop: 0 },
+  orangeLineWide: { height: 10, background: "#ff7a00", width: "100%", maxWidth: `calc(${COL_W} * 2 + 28px)`, margin: "0 auto" },
   penTitle: { marginBottom: 8, fontWeight: 800, fontSize: 18, color: "#ff7a00" },
-  penRow: { justifyContent: "space-around", marginTop: 12 },
-  penTeamBox: (bg, fg, br) => ({ background: bg, color: fg, textShadow: getContrastShadow(fg), border: "2px solid", borderColor: br, padding: "8px 12px", borderRadius: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 160, textAlign: "center", fontWeight: 800 }),
-  penBtn: { padding: "10px 14px", fontSize: 16, minWidth: 100 },  btnSm: { padding: "8px 10px", fontSize: 14 },
-
+  penTeamBox: (bg, fg, br) => ({
+    background: bg,
+    color: fg,
+    textShadow: getContrastShadow(fg),
+    border: "2px solid",
+    borderColor: br,
+    padding: "8px 12px",
+    borderRadius: 12,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 160,
+    textAlign: "center",
+    fontWeight: 800,
+  }),
+  penBtn: { padding: "10px 14px", fontSize: 16, minWidth: 100 },
+  penScoreLine: { fontWeight: 800, marginTop: 4 },
   localGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 },
   btnOrange: { background: "#ff7a00", color: "#fff" },
+  iconCellSpacer: {},
+  aggregateBox: {
+    position: "absolute",
+    top: "15%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+    padding: "6px 10px",
+    borderRadius: 12,
+    background: "rgba(255,255,255,0.9)",
+    boxShadow: "0 4px 14px rgba(0,0,0,.12)",
+    border: "1px solid #ffd6ad",
+    zIndex: 4
+  },
+  aggregateTitle: {
+    fontSize: "70%",
+    lineHeight: 1,
+    fontWeight: 800,
+    color: "#ff7a00",
+    textTransform: "uppercase",
+    letterSpacing: 0.5
+  },
+  aggregateScore: {
+    fontSize: "125%",
+    lineHeight: 1.1,
+    fontWeight: 900
+  },
+  navFixed: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    background: 'linear-gradient(90deg, #ff6a00, #ff7e2d)',
+    boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+    borderBottom: '1px solid rgba(0,0,0,.06)',
+  },
+  navInner: {
+    display: 'grid',
+    gridTemplateColumns: '56px 1fr 80px',
+    alignItems: 'center',
+    gap: 8,
+    maxWidth: `calc(${COL_W} * 2 + 28px)`,
+    margin: '0 auto',
+    height: NAV_H,
+    padding: '0 8px',
+  },
+  navSide: { display:'flex', alignItems:'center', height:'100%', padding:'0 6px' },
+  navLogo: { height: 40, display:'block', cursor:'pointer', borderRadius: 12,  background: "rgba(255,255,255,0.95)", padding: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)" },
+  navCenter: { display:'flex', alignItems:'center', justifyContent:'center', height:'100%' },
+  navTitle: { fontWeight: 900, fontSize: 18, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', color:'#fff' },
+  navSpacer: { height: NAV_H + 2 },
+  navBackBtn: { marginRight: 6, background: '#f3f4f6', color:'#FB8C00', fontSize:20, lineHeight:1, border:'none', cursor:'pointer' },
+  
+  // Cores A/B editor
+    colorRow: { gap: 8, alignItems:'center', marginTop: 10 },
+    colorDot: (hex) => ({
+      width: 28, height: 28, borderRadius: '50%',
+      background: hex, border: '2px solid rgba(0,0,0,.15)',
+      boxShadow: '0 1px 2px rgba(0,0,0,.08)', cursor: 'pointer'
+    }),
+
+    // Overlay modal para color picker
+    overlay: {
+      position:'fixed', inset: 0, background:'rgba(0,0,0,.35)',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      padding: 16, zIndex: 1100
+    },
+    modal: {
+      width: 'min(280px, 92vw)', background:'#fff',
+      borderRadius: 14, padding: 14,
+      boxShadow: '0 18px 40px rgba(0,0,0,.25)',
+      border:'1px solid rgba(0,0,0,.06)'
+    },
+
+
 };

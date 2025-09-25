@@ -4,18 +4,18 @@ import React from "react";
 export const COLOR_OPTIONS = [
   { key: "branco", value: "#FFFFFF" },
   { key: "preto", value: "#000000" },
+  { key: "cinza", value: "#9E9E9E" },
   { key: "vermelho", value: "#E53935" },
+  { key: "grena", value: "#7B1E3C" },
   { key: "verde", value: "#43A047" },
   { key: "verde-escuro", value: "#1B5E20" },
   { key: "azul", value: "#1E88E5" },
   { key: "azul-escuro", value: "#0D47A1" },
-  { key: "grena", value: "#7B1E3C" },
   { key: "amarelo", value: "#FBC02D" },
   { key: "laranja", value: "#FB8C00" },
   { key: "roxo", value: "#8E24AA" },
   { key: "rosa", value: "#EC407A" },
   { key: "marrom", value: "#6D4C41" },
-  { key: "cinza", value: "#9E9E9E" },
 ];
 
 /**

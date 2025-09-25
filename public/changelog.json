@@ -19,7 +19,6 @@
         "Campeonatos — Definir botonista por time + alerta quando dois times do mesmo botonista se enfrentam (apenas futebol de botão)",
         "Placar — Seleção de layouts do placar",
         "Placar — Registro de eventos no placar",
-        "Placar — Efeitos sonoros (apito e gol) e efeitos visuais no gol",
         "Placar — Compartilhar placar de partida encerrada",
         "Experiência do app — Service Worker offline para placar e assets principais",
         "Experiência do app — Perfis de cores (temas)",
@@ -32,12 +31,30 @@
       ]
     },
     {
-      "version": "v1.2.2",
+      "version": "v1.2.3",
       "status": "Unreleased",
-      "date": "2025-09-26",
+      "date": null,
       "highlights": [
         "Placar: layout mobile horizontal",
-        "Home: StoreBanner dinâmico"
+        "Placar: Arquitetura de componentes"
+      ]
+    },
+    {
+      "version": "v1.2.2",
+      "status": "Released",
+      "date": "2025-09-22",
+      "highlights": [
+        "Home: StoreBanner dinâmico",
+        "CampeonatoEquipes — Filtro: 'Meus times' filtrados pela mesma categoria do campeonato",
+        "CampeonatoEquipes — Subtítulo: exibe a categoria aplicada sem quebrar o layout do filtro de região",
+        "CampeonatoEquipes — Backend: removida a função resetarPartidas(), lógica agora controlada pelo servidor",
+        "CampeonatoEquipes — Botões: Gerar partidas/Remover só desabilitam quando há partidas encerradas",
+        "Placar — Funcionalidades/Lógica de jogo: agregado no mata-mata (perna 2) exibido centralizado entre os dois TeamIcons, atualizado em tempo real",
+        "Placar — Editor Avulso: novo seletor de cores",
+        "Placar — Interface/Layout: navbar próprio do Placar substitui o global (ocultado nesta tela)",
+        "Placar — Interface/Layout: direita com botão Voltar (←) e botão ✎ (só no Avulso)",
+        "Placar — Interface/Layout: agregado em card centralizado sobre os TeamIcons",
+        "Placar — Efeitos sonoros básicos e avançados"
       ]
     },
     {

@@ -1,3 +1,4 @@
+// v1.2.2.0 — Partidas do Campeonato — Header padrão + botões + limites + ações separadas (Salvar Local/Data e Reabrir Partida)
 // v1.2.0.2 — Partidas do Campeonato — Header padrão + botões + limites nos campos de edição
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -595,6 +596,29 @@ export default function CampeonatoPartidas() {
                                     onChange={(e) => setFormEdicao((f) => ({ ...f, dataHora: e.target.value }))}
                                   />
                                 </div>
+                                
+                                {/* Botão para salvar apenas Local/Data */}
+                                <div className="row">
+                                  <button
+                                    className="btn btn--orange"
+                                    onClick={async () => {
+                                      if (!editandoId) return;
+                                      const payload = {
+                                        data_hora: formEdicao.dataHora ? new Date(formEdicao.dataHora).toISOString() : null,
+                                        local: formEdicao.local?.trim() || null,
+                                      };
+                                      const { error } = await supabase.from('partidas').update(payload).eq('id', editandoId);
+                                      if (error) { setErroForm("❌ Erro ao salvar Local/Data"); return; }
+                                      setErroForm("");
+                                      await recarregarPartidas();
+                                    }}
+                                  >
+                                    Salvar Local/Data
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-2 mt-4">
                                 <div className="field">
                                   <label className="label">Gols (Time A)</label>
                                   <input
@@ -650,8 +674,14 @@ export default function CampeonatoPartidas() {
                                 <button className="btn btn--muted" onClick={cancelarEdicao}>Cancelar</button>
                                 <button
                                   className="btn btn--red"
-                                  onClick={() => reiniciarPartida(p.id)}
-                                  title="Zerar gols e pênaltis desta partida"
+                                  onClick={async () => {
+                                    if (!window.confirm("Reabrir/zerar a partida?")) return;
+                                    const { error } = await supabase.rpc('reabrir_partida', { p_partida_id: p.id });
+                                    if (error) { alert("❌ Erro ao reabrir a partida: " + error.message); return; }
+                                    setEditandoId(null);
+                                    await recarregarPartidas();
+                                  }}
+                                  title="Reabrir a partida (zera gols e pênaltis)"
                                   style={{ marginLeft: "auto" }}
                                 >
                                   Reiniciar
