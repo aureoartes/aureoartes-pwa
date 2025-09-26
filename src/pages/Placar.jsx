@@ -885,8 +885,7 @@ function registrarPenalti(team, convertido) {
       </div>
       <div style={ui.orangeLineWide} />
       <div className="placar-timer" style={{ marginBottom: 12 }}><div className="placar-timer__value">{fmt(segRestantes)}</div></div>
-      <div style={{ height: 8 }} />
-
+     
       {toastMsg && (<div className={`placar-toast ${isMobilePortrait ? "placar-toast--top" : ""}`}>{toastMsg}</div>)}
 
       {/* ===== Seção Períodos ===== */}
@@ -904,10 +903,9 @@ function registrarPenalti(team, convertido) {
           </div>
         </div>
       )}
-      {/* ===== Seção Partida Encerrada ===== */}
-      {encerrada && (<div className="card" style={{...ui.cardCenteredStrong, ...ui.cardFullWidth}}>Partida Encerrada</div>)}
       {/* Espaço entre seções */}
-      <div style={{ height: 8 }} />
+      {!encerrada && fase !== "PEN" && (<div style={{ height: 4 }} />)}
+            
       {/* ===== Seção Penaltis ===== */}
       {(fase === "PEN" || (encerrada && tevePenaltis)) && (
         <div className="card" style={{ ...ui.cardPadCenter, ...ui.cardFullWidth }}>
@@ -952,7 +950,11 @@ function registrarPenalti(team, convertido) {
         </div>
       )}
       {/* Espaço entre seções */}
-      <div style={{ height: 8 }} />
+      {(fase === "PEN" || (encerrada && tevePenaltis)) && (<div style={{ height: 4 }} />)}
+      {/* ===== Seção Partida Encerrada ===== */}
+      {encerrada && (<div className="card" style={{...ui.cardCenteredStrong, ...ui.cardFullWidth}}>Partida Encerrada</div>)}
+      {/* Espaço entre seções */}
+      {encerrada && (<div style={{ height: 4 }} />)}
       {/* ===== Seção inferior: Local/Data + Toggles + Ações ===== */}
       <div className="card" style={{ ...ui.cardPadMt20, ...ui.cardFullWidth, marginTop: 16 }}>
         <div className="row" style={ui.localGrid}>
@@ -1097,7 +1099,7 @@ const ui = {
     zIndex: 4
   },
   aggregateTitle: {
-    fontSize: "70%",
+    fontSize:  `calc(${COL_W} / 22)`,
     lineHeight: 1,
     fontWeight: 800,
     color: "#ff7a00",
@@ -1105,7 +1107,7 @@ const ui = {
     letterSpacing: 0.5
   },
   aggregateScore: {
-    fontSize: "125%",
+    fontSize: `calc(${COL_W} / 12)`,
     lineHeight: 1.1,
     fontWeight: 900
   },
