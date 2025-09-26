@@ -1,4 +1,4 @@
-// v1.2.2.19
+// v1.2.2.20
 // src/pages/Placar.jsx
 // Navbar próprio fixo no Placar, cor laranja igual ao global, texto branco e botão voltar à direita
 // Editor Avulso com seletor de cores via overlay
@@ -910,7 +910,7 @@ function registrarPenalti(team, convertido) {
       {(fase === "PEN" || (encerrada && tevePenaltis)) && (
         <div className="card" style={{ ...ui.cardPadCenter, ...ui.cardFullWidth }}>
           <div style={ui.penTitle}>
-            {penAlt ? "Pênaltis — Cobranças alternadas" : `Pênaltis — Cobranças regulares ${qtdPen}`}
+            {penAlt ? "Pênaltis — Cobranças alternadas" : `Pênaltis — Regulares: ${qtdPen}`}
           </div>
 
           <div className="row" style={ui.rowCenter12}>
@@ -1073,7 +1073,7 @@ const ui = {
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    minWidth: 160,
+    minWidth: 140,
     textAlign: "center",
     fontWeight: 800,
   }),
